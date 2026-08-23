@@ -1,0 +1,34 @@
+{
+  "name": "scoutx-backend",
+  "version": "1.0.0",
+  "description": "ScoutX AI - Sports Talent Assessment REST API Backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "tunnel": "npx localtunnel --port 5000"
+  },
+  "keywords": [
+    "express",
+    "sports-ai",
+    "talent-assessment",
+    "sih"
+  ],
+  "author": "ScoutX Team",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
+    "form-data": "^4.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb-memory-server": "^11.2.0",
+    "mongoose": "^9.9.3",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

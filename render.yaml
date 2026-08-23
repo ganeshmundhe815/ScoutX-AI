@@ -1,0 +1,35 @@
+services:
+  # 1. Node.js + Express Backend API
+  - type: web
+    name: scoutx-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    rootDir: backend
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGO_URI
+        sync: false
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: scoutx-ai-service
+          property: host
+
+  # 2. Python AI & Computer Vision Microservice
+  - type: web
+    name: scoutx-ai-service
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt flask flask-cors gunicorn
+    startCommand: gunicorn --bind 0.0.0.0:8000 --workers 2 --timeout 120 app:app
+    rootDir: ai_service
+    envVars:
+      - key: PORT
+        value: 8000
