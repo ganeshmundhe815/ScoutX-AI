@@ -1,15 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getNationalLeaderboard,
-  submitCoachFeedback,
+  searchAndFilterPlayers,
+  shortlistPlayer,
+  getShortlist,
+  getLeaderboard,
 } = require('../controllers/scoutController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 
-// Public / Authenticated Leaderboard
-router.get('/leaderboard', getNationalLeaderboard);
+// Public Leaderboard
+router.get('/leaderboard', getLeaderboard);
 
-// Protected Coach Actions
-router.post('/feedback', protect, submitCoachFeedback);
+// Protected Coach / Admin Scouting Endpoints
+router.get('/players', protect, searchAndFilterPlayers);
+router.post('/shortlist', protect, authorizeRoles('coach', 'admin'), shortlistPlayer);
+router.get('/shortlist', protect, authorizeRoles('coach', 'admin'), getShortlist);
 
 module.exports = router;

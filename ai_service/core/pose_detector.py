@@ -21,10 +21,11 @@ MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", 
 
 class PoseDetector:
     """
-    PoseDetector wraps MediaPipe PoseLandmarker to detect 33 3D body landmarks
-    and draw sports skeletal overlays on video frames.
+    PoseDetector wraps MediaPipe Tasks PoseLandmarker to detect 33 3D body landmarks.
+    Enforces visibility/presence confidence thresholds to prevent erratic biomechanical metrics.
     """
-    def __init__(self, min_pose_detection_confidence=0.5, min_pose_presence_confidence=0.5):
+    def __init__(self, min_pose_detection_confidence=0.50, min_pose_presence_confidence=0.50, min_visibility_thresh=0.50):
+        self.min_visibility_thresh = min_visibility_thresh
         self._ensure_model_exists()
 
         base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
@@ -47,7 +48,7 @@ class PoseDetector:
 
     def find_pose(self, frame, draw=True):
         """
-        Processes a BGR OpenCV frame, runs pose estimation, and draws skeletal lines.
+        Processes a BGR OpenCV frame, runs pose estimation, and draws skeletal overlays.
         Returns: (result, annotated_frame)
         """
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -67,27 +68,28 @@ class PoseDetector:
                     lm1 = landmarks[idx1]
                     lm2 = landmarks[idx2]
                     
-                    pt1 = (int(lm1.x * w), int(lm1.y * h))
-                    pt2 = (int(lm2.x * w), int(lm2.y * h))
-                    
-                    cv2.line(annotated_frame, pt1, pt2, (255, 200, 0), 2)
+                    # Only draw line if both endpoints satisfy visibility threshold
+                    if (lm1.visibility or 1.0) >= self.min_visibility_thresh and (lm2.visibility or 1.0) >= self.min_visibility_thresh:
+                        pt1 = (int(lm1.x * w), int(lm1.y * h))
+                        pt2 = (int(lm2.x * w), int(lm2.y * h))
+                        cv2.line(annotated_frame, pt1, pt2, (255, 200, 0), 2)
 
             # 2. Draw Key Joint Landmark Circles
             for idx, lm in enumerate(landmarks):
-                cx, cy = int(lm.x * w), int(lm.y * h)
-                
-                # Highlight key athletic joints (Shoulders, Hips, Knees, Ankles)
-                if idx in [11, 12, 23, 24, 25, 26, 27, 28]:
-                    cv2.circle(annotated_frame, (cx, cy), 6, (0, 165, 255), cv2.FILLED)
-                    cv2.circle(annotated_frame, (cx, cy), 8, (255, 255, 255), 2)
-                else:
-                    cv2.circle(annotated_frame, (cx, cy), 4, (0, 255, 128), cv2.FILLED)
+                if (lm.visibility or 1.0) >= self.min_visibility_thresh:
+                    cx, cy = int(lm.x * w), int(lm.y * h)
+                    # Highlight key athletic joints (Shoulders, Hips, Knees, Ankles)
+                    if idx in [11, 12, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]:
+                        cv2.circle(annotated_frame, (cx, cy), 5, (0, 165, 255), cv2.FILLED)
+                        cv2.circle(annotated_frame, (cx, cy), 7, (255, 255, 255), 1)
+                    else:
+                        cv2.circle(annotated_frame, (cx, cy), 3, (0, 255, 128), cv2.FILLED)
 
         return result, annotated_frame
 
     def get_landmarks(self, frame, result):
         """
-        Extracts landmark coordinates into a clean dictionary list.
+        Extracts landmark coordinates and visibility values into a clean dictionary list.
         """
         landmark_list = []
         if result.pose_landmarks and len(result.pose_landmarks) > 0:
@@ -97,9 +99,11 @@ class PoseDetector:
                     "id": idx,
                     "x_pixel": int(lm.x * w),
                     "y_pixel": int(lm.y * h),
-                    "x_norm": lm.x,
-                    "y_norm": lm.y,
-                    "z": lm.z,
-                    "visibility": lm.visibility,
+                    "x_norm": float(lm.x),
+                    "y_norm": float(lm.y),
+                    "z": float(lm.z) if hasattr(lm, 'z') else 0.0,
+                    "visibility": float(lm.visibility) if hasattr(lm, 'visibility') and lm.visibility is not None else 1.0,
+                    "presence": float(lm.presence) if hasattr(lm, 'presence') and lm.presence is not None else 1.0,
+                    "is_reliable": (float(lm.visibility) >= self.min_visibility_thresh) if hasattr(lm, 'visibility') and lm.visibility is not None else True,
                 })
         return landmark_list

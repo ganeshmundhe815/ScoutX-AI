@@ -3,60 +3,94 @@ import {
   StyleSheet,
   Text,
   View,
-  TouchableOpacity,
-  SafeAreaView,
   StatusBar,
+  Animated,
+  Platform,
 } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function SplashScreen({ navigation }) {
+  const fadeAnim = new Animated.Value(0);
+  const scaleAnim = new Animated.Value(0.9);
+
   useEffect(() => {
-    // Optional auto-redirect after 3 seconds, or athlete can press "Get Started"
+    // Smooth fade & pop animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 700,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Check for persisted user session (Preserve state on refresh)
     const timer = setTimeout(() => {
-      navigation.replace('Login');
-    }, 3500);
+      let savedSession = null;
+      if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('scoutx_user_session');
+          if (raw) {
+            savedSession = JSON.parse(raw);
+          }
+        } catch (e) {
+          console.warn('[Session Restore Error]:', e);
+        }
+      }
+
+      if (savedSession && savedSession.userName) {
+        navigation.replace('Home', savedSession);
+      } else {
+        navigation.replace('Login');
+      }
+    }, 1200);
 
     return () => clearTimeout(timer);
-  }, [navigation]);
+  }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0B0F19" />
       
-      <View style={styles.content}>
-        {/* Animated Trophy Icon */}
-        <View style={styles.iconCircle}>
-          <MaterialCommunityIcons name="trophy-award" size={70} color="#38BDF8" />
+      <Animated.View
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
+      >
+        {/* Glowing Football Icon */}
+        <View style={styles.iconWrapper}>
+          <Ionicons name="football" size={56} color="#10B981" />
         </View>
 
-        {/* Brand Title */}
-        <Text style={styles.title}>ScoutX AI</Text>
-        <Text style={styles.tagline}>
-          Democratizing Sports Talent Assessment
-        </Text>
+        {/* Title */}
+        <Text style={styles.appName}>ScoutX AI</Text>
+        <Text style={styles.tagline}>AI-Powered Football Talent Assessment</Text>
+        <Text style={styles.subTagline}>Democratizing Football Scouting Across India ⚽</Text>
 
-        {/* Hackathon Badge */}
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>🏅 SIH 2025 • Khelo India KIRTI</Text>
+        {/* Football Badges */}
+        <View style={styles.badgeRow}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>YOLO + MediaPipe AI</Text>
+          </View>
+          <View style={[styles.badge, { backgroundColor: 'rgba(16, 185, 129, 0.2)' }]}>
+            <Text style={[styles.badgeText, { color: '#10B981' }]}>Grassroots Scouting</Text>
+          </View>
         </View>
+      </Animated.View>
 
-        <Text style={styles.subtext}>
-          Turning standard smartphones into AI sports science assessment labs.
-        </Text>
-      </View>
-
-      {/* Action Button */}
+      {/* Footer */}
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.primaryButton}
-          activeOpacity={0.85}
-          onPress={() => navigation.replace('Login')}
-        >
-          <Text style={styles.primaryButtonText}>Get Started ➔</Text>
-        </TouchableOpacity>
-        <Text style={styles.versionText}>Version 1.0.0 • Mobile First</Text>
+        <Text style={styles.footerText}>Designed for Players • Coaches • Scouts</Text>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -64,86 +98,68 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0B0F19',
-    justifyContent: 'space-between',
-  },
-  content: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    padding: 24,
   },
-  iconCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  content: {
+    alignItems: 'center',
+  },
+  iconWrapper: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: '#1E293B',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
     borderWidth: 2,
-    borderColor: '#38BDF8',
-    elevation: 8,
+    borderColor: '#10B981',
   },
-  title: {
-    fontSize: 36,
+  appName: {
+    fontSize: 34,
     fontWeight: '900',
-    color: '#F8FAFC',
-    letterSpacing: 0.5,
+    color: '#FFFFFF',
+    letterSpacing: 1,
   },
   tagline: {
-    fontSize: 15,
-    color: '#94A3B8',
-    textAlign: 'center',
-    marginTop: 8,
-    fontWeight: '500',
-  },
-  badge: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.3)',
-  },
-  badgeText: {
-    color: '#38BDF8',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  subtext: {
-    color: '#64748B',
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 20,
-    lineHeight: 20,
-    paddingHorizontal: 16,
-  },
-  footer: {
-    padding: 24,
-    paddingBottom: 36,
-    alignItems: 'center',
-  },
-  primaryButton: {
-    backgroundColor: '#3B82F6',
-    width: '100%',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+    color: '#10B981',
+    marginTop: 8,
+    textAlign: 'center',
   },
-  versionText: {
+  subTagline: {
+    fontSize: 13,
+    color: '#94A3B8',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 24,
+  },
+  badge: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  badgeText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 30,
+  },
+  footerText: {
     color: '#475569',
     fontSize: 12,
-    marginTop: 14,
+    fontWeight: '600',
   },
 });

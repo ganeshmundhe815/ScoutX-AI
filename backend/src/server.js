@@ -8,9 +8,12 @@ const connectDB = require('./config/db');
 const healthRoutes = require('./routes/health.routes');
 const dbRoutes = require('./routes/db.routes');
 const authRoutes = require('./routes/auth.routes');
+const playerRoutes = require('./routes/player.routes');
 const athleteRoutes = require('./routes/athlete.routes');
 const assessmentRoutes = require('./routes/assessment.routes');
 const scoutRoutes = require('./routes/scout.routes');
+const messageRoutes = require('./routes/message.routes');
+const adminRoutes = require('./routes/admin.routes');
 const errorHandler = require('./middleware/errorHandler');
 
 // 1. Load environment variables
@@ -32,7 +35,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded drill videos statically
+// Serve uploaded football drill videos statically
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Request logger
@@ -45,25 +48,32 @@ app.use((req, res, next) => {
 app.use('/api/health', healthRoutes);
 app.use('/api/db', dbRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/players', playerRoutes);
 app.use('/api/athletes', athleteRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/scouts', scoutRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Root Welcome Route
 app.get('/', (req, res) => {
   res.json({
-    project: 'ScoutX AI – Sports Talent Assessment Platform 🏆',
+    project: 'ScoutX AI – Football Talent Assessment Platform ⚽',
     status: 'Active',
-    message: 'Welcome to ScoutX AI Unified API Gateway 🚀',
-    version: '1.0.0',
+    message: 'Welcome to ScoutX Football Unified API Gateway 🚀',
+    version: '2.0.0',
     endpoints: {
       health: 'GET /api/health',
       dbStatus: 'GET /api/db/status',
       register: 'POST /api/auth/register',
       login: 'POST /api/auth/login',
-      athleteDashboard: 'GET /api/athletes/dashboard (Protected)',
+      playerProfile: 'GET/PUT /api/players/profile (Protected)',
+      playerStats: 'GET /api/players/stats (Protected)',
       aiAssessment: 'POST /api/assessments/analyze (Upload Video)',
-      scoutLeaderboard: 'GET /api/scouts/leaderboard',
+      scoutSearch: 'GET /api/scouts/players (Protected - Coach)',
+      coachShortlist: 'POST/GET /api/scouts/shortlist (Protected - Coach)',
+      messages: 'POST/GET /api/messages (Protected)',
+      adminDashboard: 'GET /api/admin/stats (Protected - Admin)',
     },
   });
 });
@@ -82,11 +92,13 @@ app.use(errorHandler);
 // 7. Start the Express Server
 app.listen(PORT, () => {
   console.log('====================================================');
-  console.log(`🚀 ScoutX AI Backend Server running on port ${PORT}`);
+  console.log(`⚽ ScoutX AI Football Server running on port ${PORT}`);
   console.log(`🔗 Health Check:      http://localhost:${PORT}/api/health`);
   console.log(`🔑 Auth Endpoints:    http://localhost:${PORT}/api/auth`);
-  console.log(`🏃 Athlete Portal:    http://localhost:${PORT}/api/athletes`);
+  console.log(`🏃 Player Portal:     http://localhost:${PORT}/api/players`);
   console.log(`🧠 AI Assessments:    POST http://localhost:${PORT}/api/assessments/analyze`);
-  console.log(`🏆 Scout Leaderboard: http://localhost:${PORT}/api/scouts/leaderboard`);
+  console.log(`🏆 Scout Discovery:   http://localhost:${PORT}/api/scouts/players`);
+  console.log(`💬 Messaging Engine:  http://localhost:${PORT}/api/messages`);
+  console.log(`👑 Admin Portal:      http://localhost:${PORT}/api/admin/stats`);
   console.log('====================================================');
 });

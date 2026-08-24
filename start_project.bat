@@ -1,14 +1,14 @@
 @echo off
-TITLE ScoutX AI - Master Launcher
-COLOR 0B
+TITLE ScoutX AI - Football Talent Assessment Master Launcher
+COLOR 0A
 echo ===================================================================
-echo               🏆 SCOUTX AI - MASTER SYSTEM LAUNCHER
-echo      AI-Powered Mobile Platform for Sports Talent Assessment
+echo               ⚽ SCOUTX AI - MASTER SYSTEM LAUNCHER
+echo   AI-Powered Mobile Platform for Democratizing Football Talent
 echo ===================================================================
 echo.
 
 echo [1/3] Starting Python AI & Computer Vision Microservice (Port 8000)...
-start "ScoutX - Python AI Engine (Port 8000)" cmd /k "cd ai_service && python app.py"
+start "ScoutX - Football AI Engine (Port 8000)" cmd /k "cd ai_service && python app.py"
 timeout /t 3 /nobreak >nul
 
 echo [2/3] Starting Node.js + Express Backend API (Port 5000)...
@@ -20,7 +20,7 @@ start "ScoutX - React Native Mobile App (Port 8081)" cmd /k "cd frontend && npx 
 
 echo.
 echo ===================================================================
-echo  ✅ ALL SERVICES LAUNCHED SUCCESSFULLY!
+echo  ✅ ALL FOOTBALL SERVICES LAUNCHED SUCCESSFULLY!
 echo.
 echo  📱 Mobile Frontend : http://localhost:8081
 echo  🟢 Express Backend : http://localhost:5000/api/health

@@ -1,124 +1,244 @@
 const mongoose = require('mongoose');
-const Athlete = require('../models/Athlete');
-const CoachFeedback = require('../models/CoachFeedback');
+const PlayerProfile = require('../models/PlayerProfile');
+const CoachProfile = require('../models/CoachProfile');
+const User = require('../models/User');
 const embeddedStore = require('../config/embeddedStore');
 
-// @desc    Get national sports talent leaderboard (Ranked by athletic score & percentile)
-// @route   GET /api/scouts/leaderboard
-// @access  Public / Scout
-const getNationalLeaderboard = async (req, res, next) => {
+// @desc    Search and filter football players with advanced criteria
+// @route   GET /api/scouts/players
+// @access  Private (Coach or Admin)
+const searchAndFilterPlayers = async (req, res, next) => {
   try {
-    const { sport, state, limit = 20 } = req.query;
+    const {
+      search,
+      position,
+      preferredFoot,
+      minAge,
+      maxAge,
+      minScore,
+      minDribbling,
+      minShooting,
+      minControl,
+      state,
+      sortBy = 'overallScore',
+      order = 'desc',
+    } = req.query;
 
-    // If MongoDB is connected, query from MongoDB
+    let players = [];
+
     if (mongoose.connection.readyState === 1) {
-      let query = {};
-      if (sport) {
-        query.primarySport = new RegExp(sport, 'i');
+      const query = {};
+
+      if (position) {
+        query.position = new RegExp(position, 'i');
       }
 
-      const athletes = await Athlete.find(query)
-        .populate('user', 'name email state district phone')
-        .sort({ 'benchmarkRadar.overallScore': -1, nationalPercentile: -1 })
-        .limit(Number(limit));
-
-      if (athletes.length > 0) {
-        const leaderboard = athletes.map((athlete, index) => ({
-          rank: index + 1,
-          athleteId: athlete.athleteId,
-          name: athlete.user?.name || 'Athlete',
-          email: athlete.user?.email || '',
-          state: athlete.user?.state || 'National',
-          district: athlete.user?.district || '',
-          sport: athlete.primarySport,
-          overallScore: athlete.benchmarkRadar?.overallScore || 70,
-          nationalPercentile: athlete.nationalPercentile || 85.0,
-          benchmarkRadar: athlete.benchmarkRadar,
-        }));
-
-        return res.status(200).json({
-          status: 'success',
-          totalAthletes: leaderboard.length,
-          data: leaderboard,
-        });
+      if (preferredFoot) {
+        query.preferredFoot = preferredFoot;
       }
-    }
 
-    // Fallback to Autonomous Embedded Store
-    let data = embeddedStore.athletes.map((ath, idx) => {
-      const u = embeddedStore.users.find((user) => user._id === ath.user) || {};
-      return {
-        rank: idx + 1,
-        athleteId: ath.athleteId,
-        name: u.name || 'Athlete',
-        email: u.email || '',
-        state: u.state || 'Maharashtra',
-        district: u.district || 'Pune',
-        sport: ath.primarySport,
-        overallScore: ath.benchmarkRadar.overallScore,
-        nationalPercentile: ath.nationalPercentile,
-        benchmarkRadar: ath.benchmarkRadar,
-      };
-    });
+      if (minAge || maxAge) {
+        query.age = {};
+        if (minAge) query.age.$gte = Number(minAge);
+        if (maxAge) query.age.$lte = Number(maxAge);
+      }
 
-    if (sport) {
-      data = data.filter((item) =>
-        item.sport.toLowerCase().includes(sport.toLowerCase())
-      );
+      if (minScore) query.overallScore = { $gte: Number(minScore) };
+      if (minDribbling) query.dribblingScore = { $gte: Number(minDribbling) };
+      if (minShooting) query.shootingScore = { $gte: Number(minShooting) };
+      if (minControl) query.ballControlScore = { $gte: Number(minControl) };
+
+      const sortOption = {};
+      sortOption[sortBy] = order === 'asc' ? 1 : -1;
+
+      players = await PlayerProfile.find(query)
+        .populate('user', 'name email phone location')
+        .sort(sortOption)
+        .limit(50);
+
+      // Filter by name or state if provided
+      if (search) {
+        players = players.filter(
+          (p) =>
+            p.user &&
+            (p.user.name.toLowerCase().includes(search.toLowerCase()) ||
+             p.playerId.toLowerCase().includes(search.toLowerCase()))
+        );
+      }
+
+      if (state) {
+        players = players.filter(
+          (p) =>
+            p.user &&
+            p.user.location &&
+            p.user.location.state.toLowerCase().includes(state.toLowerCase())
+        );
+      }
+    } else {
+      // In-Memory Fallback
+      players = embeddedStore.playerProfiles.map((p) => {
+        const u = embeddedStore.users.find((user) => user._id === p.user) || {
+          name: 'Sunil Chhetri Jr',
+          email: 'player@scoutx.com',
+          location: { state: 'Karnataka', city: 'Bengaluru' },
+        };
+        return { ...p, user: u };
+      });
+
+      if (position) {
+        players = players.filter((p) => p.position.toLowerCase().includes(position.toLowerCase()));
+      }
+      if (preferredFoot) {
+        players = players.filter((p) => p.preferredFoot === preferredFoot);
+      }
+      if (minScore) {
+        players = players.filter((p) => p.overallScore >= Number(minScore));
+      }
+      if (search) {
+        players = players.filter((p) => p.user.name.toLowerCase().includes(search.toLowerCase()));
+      }
     }
 
     res.status(200).json({
       status: 'success',
-      totalAthletes: data.length,
-      data,
+      results: players.length,
+      data: players,
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Add coach scouting feedback / shortlist an athlete
-// @route   POST /api/scouts/feedback
-// @access  Private (Coach/Scout)
-const submitCoachFeedback = async (req, res, next) => {
+// @desc    Shortlist a football player with scouting notes
+// @route   POST /api/scouts/shortlist
+// @access  Private (Coach)
+const shortlistPlayer = async (req, res, next) => {
   try {
-    const { athleteId, rating, scoutingStatus, notes, drillRecommendations } = req.body;
+    const { playerId, notes = 'High potential prospect' } = req.body;
 
-    if (!athleteId || !notes) {
+    if (!playerId) {
       return res.status(400).json({
         status: 'fail',
-        message: 'Please provide athleteId and feedback notes.',
+        message: 'Player ID is required for shortlisting.',
       });
     }
 
-    let feedbackDoc;
+    let coachDoc;
     if (mongoose.connection.readyState === 1) {
-      feedbackDoc = await CoachFeedback.create({
-        coach: req.user?._id || 'coach_01',
-        athlete: athleteId,
-        rating: Number(rating) || 4,
-        scoutingStatus: scoutingStatus || 'Shortlisted',
-        notes,
-        drillRecommendations: drillRecommendations || [],
-      });
+      coachDoc = await CoachProfile.findOne({ user: req.user._id });
+      if (!coachDoc) {
+        coachDoc = await CoachProfile.create({ user: req.user._id });
+      }
+
+      const alreadyShortlisted = coachDoc.shortlistedPlayers.some(
+        (sp) => sp.player.toString() === playerId
+      );
+
+      if (!alreadyShortlisted) {
+        coachDoc.shortlistedPlayers.push({ player: playerId, notes });
+        await coachDoc.save();
+      }
     } else {
-      feedbackDoc = {
-        _id: `fb_${Date.now()}`,
-        coach: req.user?._id || 'coach_01',
-        athlete: athleteId,
-        rating: Number(rating) || 4,
-        scoutingStatus: scoutingStatus || 'Shortlisted',
-        notes,
-        drillRecommendations: drillRecommendations || [],
-        createdAt: new Date(),
-      };
-      embeddedStore.coachFeedbacks.push(feedbackDoc);
+      coachDoc =
+        embeddedStore.coachProfiles.find((c) => c.user === req.user._id) ||
+        embeddedStore.coachProfiles[0];
+      coachDoc.shortlistedPlayers.push({ player: playerId, notes, addedAt: new Date() });
     }
 
-    res.status(201).json({
+    res.status(200).json({
       status: 'success',
-      message: 'Scouting feedback submitted successfully! 🌟',
-      data: feedbackDoc,
+      message: 'Player successfully added to your Coach Shortlist! ⚽📋',
+      data: coachDoc.shortlistedPlayers,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get Coach Shortlist
+// @route   GET /api/scouts/shortlist
+// @access  Private (Coach)
+const getShortlist = async (req, res, next) => {
+  try {
+    let shortlist = [];
+
+    if (mongoose.connection.readyState === 1) {
+      const coachDoc = await CoachProfile.findOne({ user: req.user._id }).populate({
+        path: 'shortlistedPlayers.player',
+        populate: { path: 'user', select: 'name email phone location' },
+      });
+      shortlist = coachDoc ? coachDoc.shortlistedPlayers : [];
+    } else {
+      const coachDoc =
+        embeddedStore.coachProfiles.find((c) => c.user === req.user._id) ||
+        embeddedStore.coachProfiles[0];
+      shortlist = coachDoc ? coachDoc.shortlistedPlayers : [];
+    }
+
+    res.status(200).json({
+      status: 'success',
+      results: shortlist.length,
+      data: shortlist,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get national football discovery leaderboard
+// @route   GET /api/scouts/leaderboard
+// @access  Public
+const getLeaderboard = async (req, res, next) => {
+  try {
+    let leaderboard = [];
+
+    if (mongoose.connection.readyState === 1) {
+      const topPlayers = await PlayerProfile.find({})
+        .populate('user', 'name location')
+        .sort({ overallScore: -1 })
+        .limit(20);
+
+      leaderboard = topPlayers.map((p, idx) => ({
+        rank: idx + 1,
+        athleteId: p.playerId,
+        name: p.user ? p.user.name : 'Football Athlete',
+        state: p.user && p.user.location ? p.user.location.state : 'Maharashtra',
+        sport: p.position,
+        position: p.position,
+        preferredFoot: p.preferredFoot,
+        overallScore: p.overallScore,
+        dribbling: p.dribblingScore,
+        shooting: p.shootingScore,
+        ballControl: p.ballControlScore,
+        nationalPercentile: p.nationalPercentile,
+      }));
+    } else {
+      leaderboard = embeddedStore.playerProfiles.map((p, idx) => {
+        const u = embeddedStore.users.find((usr) => usr._id === p.user) || {
+          name: 'Sunil Chhetri Jr',
+          location: { state: 'Karnataka' },
+        };
+        return {
+          rank: idx + 1,
+          athleteId: p.playerId,
+          name: u.name,
+          state: u.location.state,
+          sport: p.position,
+          position: p.position,
+          preferredFoot: p.preferredFoot,
+          overallScore: p.overallScore,
+          dribbling: p.dribblingScore,
+          shooting: p.shootingScore,
+          ballControl: p.ballControlScore,
+          nationalPercentile: p.nationalPercentile,
+        };
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      results: leaderboard.length,
+      data: leaderboard,
     });
   } catch (error) {
     next(error);
@@ -126,6 +246,8 @@ const submitCoachFeedback = async (req, res, next) => {
 };
 
 module.exports = {
-  getNationalLeaderboard,
-  submitCoachFeedback,
+  searchAndFilterPlayers,
+  shortlistPlayer,
+  getShortlist,
+  getLeaderboard,
 };

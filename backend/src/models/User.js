@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-// 1. Users Collection Schema
+// Users Collection Schema for Football Platform
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -23,20 +23,21 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['athlete', 'coach', 'scout', 'admin'],
-      default: 'athlete',
+      enum: ['player', 'coach', 'admin'],
+      default: 'player',
     },
     phone: {
       type: String,
       default: '',
     },
-    state: {
-      type: String,
-      default: '',
+    location: {
+      state: { type: String, default: '' },
+      district: { type: String, default: '' },
+      city: { type: String, default: '' },
     },
-    district: {
-      type: String,
-      default: '',
+    isActive: {
+      type: Boolean,
+      default: true,
     },
   },
   {

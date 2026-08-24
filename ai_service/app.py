@@ -13,7 +13,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from analyze_drill import analyze_sports_drill
+from football.football_assessment import run_football_assessment, warmup_ai_models
 
 app = Flask(__name__)
 CORS(app)
@@ -21,45 +21,51 @@ CORS(app)
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB max video size
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB max video size
 
-ALLOWED_EXTENSIONS = {"mp4", "avi", "mov", "mkv", "webm"}
-
-
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+# Pre-warm AI models for instant execution on user requests
+try:
+    warmup_ai_models()
+except Exception as e:
+    print(f"[WARN] Pre-warm notice: {e}")
 
 
 @app.route("/health", methods=["GET"])
 def health_check():
-    """Diagnostic health check for Python AI Microservice."""
+    """Diagnostic health check for Football AI Microservice."""
     return jsonify({
-        "status": "active",
-        "service": "ScoutX AI Computer Vision Engine 🧠",
-        "supportedDrills": ["squat", "pushup", "jump"],
-        "frameworks": ["OpenCV", "MediaPipe PoseLandmarker", "NumPy"],
+        "status": "ok",
+        "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
+        "supportedDrills": ["dribbling", "shooting", "ball_control"],
+        "models": {
+            "pose": "MediaPipe 33-Landmark PoseLandmarker",
+            "yolo": os.environ.get("YOLO_MODEL_PATH", "yolov8n.pt"),
+            "tracker": "2D Kalman Filter Motion Smoother",
+        },
+        "python": sys.version.split()[0],
         "port": 8000,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }), 200
 
 
 @app.route("/api/ai/analyze", methods=["POST"])
-def analyze_video_endpoint():
+def analyze_football_video_endpoint():
     """
-    Main AI Analysis API Endpoint:
-    Accepts:
-      - Multipart video file OR JSON { "videoPath": "...", "drillType": "squat" }
-    Returns:
-      - Complete athletic metrics, valid reps, form accuracy, faults, and SAI score.
+    Universal Football AI Analysis Endpoint:
+    Accepts ANY football video without restriction.
+    Returns complete structured technical football scorecard, raw metrics, and video quality validation.
     """
-    drill_type = request.form.get("drillType") or request.args.get("drillType") or "squat"
+    drill_type = request.form.get("drillType") or request.args.get("drillType") or "dribbling"
+    preferred_foot = request.form.get("preferredFoot") or "Right"
     video_path = None
 
-    # Check if a video file was uploaded directly via multipart/form-data
     if "video" in request.files:
         file = request.files["video"]
-        if file.filename != "" and allowed_file(file.filename):
-            filename = secure_filename(f"{int(time.time())}_{file.filename}")
+        if file.filename != "":
+            raw_name = secure_filename(file.filename) or "video.mp4"
+            if not ("." in raw_name):
+                raw_name += ".mp4"
+            filename = f"fb_{int(time.time())}_{raw_name}"
             saved_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(saved_path)
             video_path = saved_path
@@ -67,74 +73,90 @@ def analyze_video_endpoint():
         data = request.get_json()
         video_path = data.get("videoPath")
         drill_type = data.get("drillType", drill_type)
+        preferred_foot = data.get("preferredFoot", preferred_foot)
     else:
         video_path = request.form.get("videoPath")
 
-    # If no custom video provided, fallback to sample demo video
     if not video_path or not os.path.exists(video_path):
         video_path = os.path.join(os.path.dirname(__file__), "sample_athlete.mp4")
         if not os.path.exists(video_path):
             from generate_test_video import create_sample_athlete_video
             create_sample_athlete_video(video_path)
 
-    print(f"[API] Processing {drill_type.upper()} on video: {video_path}")
+    print(f"[UNIVERSAL FOOTBALL AI] Analyzing {drill_type.upper()} on video: {video_path}")
 
-    # Run the Computer Vision Biomechanical Pipeline (Headless mode for server)
     out_annotated = os.path.join(app.config["UPLOAD_FOLDER"], f"annotated_{int(time.time())}_{drill_type}.mp4")
-    report = analyze_sports_drill(
+    report = run_football_assessment(
         drill_type=drill_type,
         input_source=video_path,
         output_video=out_annotated,
-        show_display=False
+        show_display=False,
+        preferred_foot=preferred_foot
     )
 
     if not report:
         return jsonify({
+            "success": False,
             "status": "error",
-            "message": "Failed to analyze video."
-        }), 500
+            "message": "Failed to parse video frames. Please ensure valid video format (MP4, MOV, AVI).",
+            "warnings": ["Video decode failed."],
+        }), 400
 
-    # Calculate SAI Norm Score & Percentile Rank
-    raw_metrics = report.get("metrics", {})
-    reps = raw_metrics.get("valid_reps", 0)
-    form_score = raw_metrics.get("form_score", 85.0)
-    jump_h = raw_metrics.get("max_jump_height_cm", 0.0)
-
-    # Standard Khelo India benchmark normalization
-    if drill_type == "squat":
-        sai_score = min(100.0, round((reps / 35.0) * 60 + (form_score * 0.4), 1))
-    elif drill_type == "pushup":
-        sai_score = min(100.0, round((reps / 30.0) * 60 + (form_score * 0.4), 1))
-    elif drill_type == "jump":
-        sai_score = min(100.0, round((jump_h / 60.0) * 100, 1))
-    else:
-        sai_score = 75.0
+    # Ensure backwards compatibility for Node backend while serving rich structured schema
+    raw = report.get("rawMetrics", {})
+    foot = report.get("footUsage", {})
+    
+    metrics_compat = {
+        "durationSec": raw.get("durationSec", 10.0),
+        "ballTouches": raw.get("ballTouches") or raw.get("touchesCount") or 12,
+        "touchesCount": raw.get("touchesCount") or raw.get("ballTouches") or 12,
+        "controlConsistency": raw.get("controlConsistencyPercentage", 85.0),
+        "directionChanges": raw.get("directionChanges", 4),
+        "onTargetAccuracy": raw.get("onTargetAccuracyPercentage", 75.0),
+        "estimatedPower": raw.get("estimatedPowerIndex", 80.0),
+        "reboundControlScore": raw.get("reboundControlPercentage", 85.0),
+        "leftFootPercentage": foot.get("leftPercentage", 40.0),
+        "rightFootPercentage": foot.get("rightPercentage", 60.0),
+        "leftFootTouches": raw.get("leftFootTouches", 4),
+        "rightFootTouches": raw.get("rightFootTouches", 8),
+        "observedFootUsage": foot.get("observedFootUsage", "Right-Dominant"),
+        "declaredPreferredFoot": foot.get("declaredPreferredFoot", preferred_foot),
+    }
 
     response_payload = {
+        "success": True,
         "status": "success",
-        "drillType": drill_type,
-        "totalFrames": report.get("totalFrames", 0),
-        "metrics": {
-            "totalReps": raw_metrics.get("reps", 0),
-            "validReps": raw_metrics.get("valid_reps", 0),
-            "invalidReps": raw_metrics.get("invalid_reps", 0),
-            "formAccuracyPercentage": form_score,
-            "jumpHeightCm": jump_h,
-            "flightTimeMs": raw_metrics.get("flight_time_ms", 0),
-            "biomechanicalFaults": raw_metrics.get("faults", []),
-        },
-        "saiNormScore": max(10.0, sai_score),
-        "aiConfidenceScore": 0.96,
+        "drillType": report.get("drillType", drill_type),
+        "drillScore": report.get("score", 82.0),
+        "overallScore": report.get("score", 82.0),
+        "videoQuality": report.get("videoQuality", {}),
+        "detections": report.get("detections", {}),
+        "rawMetrics": raw,
+        "metrics": metrics_compat,
+        "footUsage": foot,
+        "feedback": report.get("feedback", []),
+        "warnings": report.get("warnings", []),
+        "confidence": report.get("confidence", 0.85),
+        "analysisConfidence": report.get("analysisConfidence", 0.85),
+        "aiConfidenceScore": report.get("analysisConfidence", 0.85),
+        "processingTimeSec": report.get("processingTimeSec", 2.0),
         "processedVideoPath": out_annotated,
         "timestamp": report.get("timestamp"),
     }
+
+    if drill_type == "dribbling":
+        response_payload["dribbling"] = report.get("dribbling", {})
+    elif drill_type == "shooting":
+        response_payload["shooting"] = report.get("shooting", {})
+    elif drill_type == "ball_control":
+        response_payload["ballControl"] = report.get("ballControl", {})
 
     return jsonify(response_payload), 200
 
 
 if __name__ == "__main__":
     print("================================================================")
-    print("🧠 ScoutX AI – Python Computer Vision Microservice")
+    print("⚽ ScoutX AI – Universal Football Computer Vision Microservice")
     print("🔗 Microservice listening on: http://localhost:8000")
     print("🔗 Health check endpoint:    http://localhost:8000/health")
     print("🔗 AI Analysis endpoint:     POST http://localhost:8000/api/ai/analyze")
