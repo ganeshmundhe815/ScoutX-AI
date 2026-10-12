@@ -1,0 +1,11 @@
+# Root .dockerignore
+.git
+.gitignore
+node_modules
+*/node_modules
+ai_service/__pycache__
+ai_service/*.pyc
+backend/uploads/*
+!backend/uploads/.gitkeep
+ai_service/uploads/*
+!ai_service/uploads/.gitkeep

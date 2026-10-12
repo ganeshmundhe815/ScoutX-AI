@@ -185,6 +185,41 @@ const getShortlist = async (req, res, next) => {
   }
 };
 
+// @desc    Remove player from Coach Shortlist
+// @route   DELETE /api/scouts/shortlist/:playerId
+// @access  Private (Coach)
+const removeFromShortlist = async (req, res, next) => {
+  try {
+    const { playerId } = req.params;
+
+    let coachDoc;
+    if (mongoose.connection.readyState === 1) {
+      coachDoc = await CoachProfile.findOne({ user: req.user._id });
+      if (coachDoc) {
+        coachDoc.shortlistedPlayers = coachDoc.shortlistedPlayers.filter(
+          (sp) => sp.player.toString() !== playerId && sp._id.toString() !== playerId
+        );
+        await coachDoc.save();
+      }
+    } else {
+      coachDoc =
+        embeddedStore.coachProfiles.find((c) => c.user === req.user._id) ||
+        embeddedStore.coachProfiles[0];
+      coachDoc.shortlistedPlayers = (coachDoc.shortlistedPlayers || []).filter(
+        (sp) => sp.player !== playerId && sp.player?._id !== playerId && sp._id !== playerId
+      );
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Player removed from Coach Shortlist.',
+      data: coachDoc ? coachDoc.shortlistedPlayers : [],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Get national football discovery leaderboard
 // @route   GET /api/scouts/leaderboard
 // @access  Public
@@ -245,9 +280,56 @@ const getLeaderboard = async (req, res, next) => {
   }
 };
 
+// @desc    Get famous football star benchmarks (TheSportsDB API + ScoutX Pro Catalog)
+// @route   GET /api/scouts/benchmarks
+// @access  Public
+const getFamousBenchmarks = async (req, res, next) => {
+  try {
+    const benchmarkService = require('../services/benchmarkService');
+    const benchmarks = await benchmarkService.getFamousBenchmarks();
+
+    res.status(200).json({
+      status: 'success',
+      results: benchmarks.length,
+      data: benchmarks,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get individual star player benchmark details
+// @route   GET /api/scouts/benchmarks/:id
+// @access  Public
+const getBenchmarkDetail = async (req, res, next) => {
+  try {
+    const benchmarkService = require('../services/benchmarkService');
+    const benchmark = benchmarkService.getBenchmarkById(req.params.id);
+
+    if (!benchmark) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Benchmark profile not found.',
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: benchmark,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   searchAndFilterPlayers,
   shortlistPlayer,
   getShortlist,
+  removeFromShortlist,
   getLeaderboard,
+  getFamousBenchmarks,
+  getBenchmarkDetail,
 };
+
+

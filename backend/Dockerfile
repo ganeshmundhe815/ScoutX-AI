@@ -7,15 +7,18 @@ WORKDIR /app
 # 3. Copy package definitions
 COPY package*.json ./
 
-# 4. Install production dependencies
+# 4. Install dependencies
 RUN npm install --production
 
 # 5. Copy source code
 COPY . .
 
-# 6. Expose port (Google Cloud Run dynamically assigns PORT)
+# 6. Ensure uploads directory exists
+RUN mkdir -p uploads
+
+# 7. Expose port
 ENV PORT=5000
 EXPOSE 5000
 
-# 7. Start application
+# 8. Start application
 CMD ["npm", "start"]

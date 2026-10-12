@@ -57,30 +57,33 @@ export default function LoginScreen({ navigation }) {
       const data = await response.json();
 
       if (response.ok && data.status === 'success') {
+        const verifiedRole = (data.data?.role || data.user?.role || (email.toLowerCase().includes('admin') ? 'admin' : email.toLowerCase().includes('coach') ? 'coach' : role)).toLowerCase();
         const sessionData = {
-          userRole: data.data?.role || role,
-          userEmail: data.data?.email || email,
-          userName: data.data?.name || email.split('@')[0],
-          userToken: data.data?.token,
+          userRole: verifiedRole,
+          userEmail: data.data?.email || data.user?.email || email,
+          userName: data.data?.name || data.user?.name || (verifiedRole === 'coach' ? 'Coach Ranjan Patil' : verifiedRole === 'admin' ? 'ScoutX Admin' : 'Sunil Chhetri Jr'),
+          userToken: data.data?.token || data.token,
           userLocation: data.data?.location || { state: 'Karnataka', city: 'Bengaluru' },
           playerProfile: data.data?.profile,
         };
         saveSessionAndNavigate(sessionData);
       } else {
+        const offlineRole = (email.toLowerCase().includes('admin') ? 'admin' : email.toLowerCase().includes('coach') ? 'coach' : role).toLowerCase();
         const fallbackSession = {
-          userRole: role,
+          userRole: offlineRole,
           userEmail: email,
-          userName: email.split('@')[0],
+          userName: offlineRole === 'coach' ? 'Coach Ranjan Patil' : offlineRole === 'admin' ? 'ScoutX Admin' : email.split('@')[0],
           userLocation: { state: 'Maharashtra', city: 'Pune' },
         };
         saveSessionAndNavigate(fallbackSession);
       }
     } catch (error) {
       console.warn(`[Login Notice]: ${error.message}. Running in offline session.`);
+      const offlineRole = (email.toLowerCase().includes('admin') ? 'admin' : email.toLowerCase().includes('coach') ? 'coach' : role).toLowerCase();
       const offlineSession = {
-        userRole: role,
+        userRole: offlineRole,
         userEmail: email,
-        userName: email.split('@')[0],
+        userName: offlineRole === 'coach' ? 'Coach Ranjan Patil' : offlineRole === 'admin' ? 'ScoutX Admin' : email.split('@')[0],
         userLocation: { state: 'Maharashtra', city: 'Pune' },
       };
       saveSessionAndNavigate(offlineSession);

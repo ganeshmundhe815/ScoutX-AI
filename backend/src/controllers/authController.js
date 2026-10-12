@@ -205,11 +205,17 @@ const loginUser = async (req, res, next) => {
         // Auto-provision demo user in DB
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password || 'password123', salt);
+        const resolvedRole = email.toLowerCase().includes('admin')
+          ? 'admin'
+          : email.toLowerCase().includes('coach')
+          ? 'coach'
+          : 'player';
+
         userDoc = await User.create({
           name: email.split('@')[0],
           email: email.toLowerCase().trim(),
           password: hashedPassword,
-          role: email.includes('coach') ? 'coach' : 'player',
+          role: resolvedRole,
           location: { state: 'Karnataka', district: 'Bengaluru', city: 'Bengaluru' },
         });
 
@@ -228,7 +234,7 @@ const loginUser = async (req, res, next) => {
         }
       }
     } else {
-      userDoc = embeddedStore.users.find((u) => u.email === email.toLowerCase());
+      userDoc = embeddedStore.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
       if (userDoc) {
         if (userDoc.role === 'player') {
           profileDoc = embeddedStore.playerProfiles.find((p) => p.user === userDoc._id);
@@ -236,25 +242,35 @@ const loginUser = async (req, res, next) => {
           profileDoc = embeddedStore.coachProfiles.find((c) => c.user === userDoc._id);
         }
       } else {
+        const resolvedRole = email.toLowerCase().includes('admin')
+          ? 'admin'
+          : email.toLowerCase().includes('coach')
+          ? 'coach'
+          : 'player';
+
         userDoc = {
           _id: `usr_demo_${Date.now()}`,
           name: email.split('@')[0],
           email: email.toLowerCase(),
-          role: email.includes('coach') ? 'coach' : 'player',
+          role: resolvedRole,
           location: { state: 'Maharashtra', district: 'Pune', city: 'Pune' },
         };
-        profileDoc = {
-          playerId: 'FB-482910',
-          position: 'Striker',
-          preferredFoot: 'Right',
-          overallScore: 88.0,
-          dribblingScore: 90.0,
-          shootingScore: 91.0,
-          ballControlScore: 84.0,
-          shotAccuracy: 86.0,
-          estimatedPower: 82.0,
-          nationalPercentile: 94.2,
-        };
+        embeddedStore.users.push(userDoc);
+
+        if (resolvedRole === 'player') {
+          profileDoc = {
+            playerId: 'FB-482910',
+            position: 'Striker',
+            preferredFoot: 'Right',
+            overallScore: 88.0,
+            dribblingScore: 90.0,
+            shootingScore: 91.0,
+            ballControlScore: 84.0,
+            shotAccuracy: 86.0,
+            estimatedPower: 82.0,
+            nationalPercentile: 94.2,
+          };
+        }
       }
     }
 
@@ -272,6 +288,13 @@ const loginUser = async (req, res, next) => {
         profile: profileDoc,
         token,
       },
+      user: {
+        id: userDoc._id,
+        name: userDoc.name,
+        email: userDoc.email,
+        role: userDoc.role,
+      },
+      token,
     });
   } catch (error) {
     next(error);

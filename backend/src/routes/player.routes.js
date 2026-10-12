@@ -6,16 +6,20 @@ const {
   getPlayerStats,
   getPlayerById,
 } = require('../controllers/playerController');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 
 // All player endpoints require authentication
 router.use(protect);
 
+// Player self-service profile and stats (Player only)
 router.route('/profile')
-  .get(getPlayerProfile)
-  .put(updatePlayerProfile);
+  .get(authorizeRoles('player'), getPlayerProfile)
+  .put(authorizeRoles('player'), updatePlayerProfile);
 
-router.get('/stats', getPlayerStats);
-router.get('/:id', getPlayerById);
+router.get('/stats', authorizeRoles('player'), getPlayerStats);
+
+// Single player inspection (Available to Player, Coach, and Admin)
+router.get('/:id', authorizeRoles('player', 'coach', 'admin'), getPlayerById);
 
 module.exports = router;
+

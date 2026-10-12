@@ -16,10 +16,19 @@ const getApiBaseUrl = () => {
   if (USE_CLOUD) {
     return CLOUD_API_URL;
   }
-  if (Platform.OS === 'web') {
+  // 1. Custom explicit Expo Public API URL if set in environment
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+  // 2. Web Browser: dynamically resolve the host so LAN devices hitting http://<HOST_IP>:8081 connect to http://<HOST_IP>:5000
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `http://${hostname}:5000/api`;
+    }
     return 'http://localhost:5000/api';
   }
-  // Mobile devices (Android / iOS) connect via LAN IP
+  // 3. Mobile devices (Android / iOS) connect via LAN IP
   return `http://${LAN_HOST_IP}:5000/api`;
 };
 
@@ -40,11 +49,15 @@ export default {
   ASSESSMENTS: {
     ANALYZE: `${BASE_API_URL}/assessments/analyze`,
     HISTORY: `${BASE_API_URL}/assessments`,
+    DEMO_SAMPLE: `${BASE_API_URL}/assessments/demo-sample`,
   },
   SCOUTS: {
     PLAYERS: `${BASE_API_URL}/scouts/players`,
     SHORTLIST: `${BASE_API_URL}/scouts/shortlist`,
+    SHORTLIST_REMOVE: (playerId) => `${BASE_API_URL}/scouts/shortlist/${playerId}`,
     LEADERBOARD: `${BASE_API_URL}/scouts/leaderboard`,
+    BENCHMARKS: `${BASE_API_URL}/scouts/benchmarks`,
+    BENCHMARK_DETAIL: (id) => `${BASE_API_URL}/scouts/benchmarks/${id}`,
   },
   MESSAGES: {
     SEND: `${BASE_API_URL}/messages`,
@@ -54,5 +67,11 @@ export default {
   ADMIN: {
     STATS: `${BASE_API_URL}/admin/stats`,
     USERS: `${BASE_API_URL}/admin/users`,
+    USER_STATUS: (userId) => `${BASE_API_URL}/admin/users/${userId}/status`,
+    DELETE_USER: (userId) => `${BASE_API_URL}/admin/users/${userId}`,
+    PLAYERS: `${BASE_API_URL}/admin/players`,
+    COACHES: `${BASE_API_URL}/admin/coaches`,
+    ASSESSMENTS: `${BASE_API_URL}/admin/assessments`,
   },
 };
+

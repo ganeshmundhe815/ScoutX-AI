@@ -203,8 +203,28 @@ const getPlayerAssessments = async (req, res, next) => {
   }
 };
 
+// @desc    Run 1-Tap Demo Assessment based on a Famous Football Star benchmark drill
+// @route   POST /api/assessments/demo-sample
+// @access  Public
+const runDemoSampleAssessment = async (req, res, next) => {
+  try {
+    const { starId = 'star_chhetri', drillType = 'shooting' } = req.body;
+    const benchmarkService = require('../services/benchmarkService');
+    const result = benchmarkService.createDemoAssessment(starId, drillType);
+
+    res.status(200).json({
+      status: 'success',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   uploadAndAnalyzeDrill,
   getPlayerAssessments,
   getMyAssessments: getPlayerAssessments,
+  runDemoSampleAssessment,
 };
+

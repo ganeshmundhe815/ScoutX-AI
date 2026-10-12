@@ -18,6 +18,7 @@ const connectDB = async () => {
     });
 
     console.log(`✅ MongoDB Connected Successfully: ${conn.connection.host}`);
+    await seedInitialData();
     return conn;
   } catch (error) {
     console.log('🚀 Initializing Embedded Autonomous MongoDB Database Engine...');
