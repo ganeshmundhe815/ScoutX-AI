@@ -5,9 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "splash": {
-      "backgroundColor": "#0B0F19",
+      "backgroundColor": "#FFFFFF",
       "resizeMode": "contain"
     },
     "ios": {

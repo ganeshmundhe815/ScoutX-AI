@@ -30,11 +30,11 @@ const athleteSchema = new mongoose.Schema(
     },
     heightCm: {
       type: Number,
-      default: 0,
+      default: null,
     },
     weightKg: {
       type: Number,
-      default: 0,
+      default: null,
     },
     primarySport: {
       type: String,

@@ -9,15 +9,19 @@ import {
   StatusBar,
   TextInput,
   ActivityIndicator,
-  Alert,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_API_URL } from '../services/apiConfig';
+import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
 export default function MessagesScreen({ route, navigation }) {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 860;
+
   const { userToken, currentUserId, userName = 'You', recipientUser } = route.params || {};
 
-  const [conversations, setConversations] = useState([]);
   const [activeRecipient, setActiveRecipient] = useState(
     recipientUser || {
       _id: 'usr_coach_01',
@@ -32,27 +36,10 @@ export default function MessagesScreen({ route, navigation }) {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    fetchConversations();
     if (activeRecipient && activeRecipient._id) {
       fetchMessageHistory(activeRecipient._id);
     }
   }, [activeRecipient]);
-
-  const fetchConversations = async () => {
-    try {
-      const response = await fetch(`${BASE_API_URL}/messages/conversations`, {
-        headers: {
-          ...(userToken && { Authorization: `Bearer ${userToken}` }),
-        },
-      });
-      const data = await response.json();
-      if (response.ok && data.data) {
-        setConversations(data.data);
-      }
-    } catch (err) {
-      console.warn(`[Messages]: ${err.message}`);
-    }
-  };
 
   const fetchMessageHistory = async (userId) => {
     setLoading(true);
@@ -66,13 +53,13 @@ export default function MessagesScreen({ route, navigation }) {
       if (response.ok && data.data && data.data.length > 0) {
         setMessages(data.data);
       } else {
-        // Default initial thread
+        // Default initial conversation thread
         setMessages([
           {
             _id: '1',
             sender: { _id: activeRecipient._id, name: activeRecipient.name },
-            message: `Hello ${userName}! We reviewed your Football AI Assessment. Your dribbling agility and ball control metrics are impressive. We would like to invite you for academy trials.`,
-            createdAt: new Date(Date.now() - 3600000),
+            message: `Hello ${userName}! We reviewed your Football AI Assessment. Your technical execution scores and ball control proximity are impressive. We would like to invite you for youth academy trials.`,
+            createdAt: new Date(Date.now() - 3600000).toISOString(),
           },
         ]);
       }
@@ -81,8 +68,8 @@ export default function MessagesScreen({ route, navigation }) {
         {
           _id: '1',
           sender: { _id: activeRecipient._id, name: activeRecipient.name },
-          message: `Hello ${userName}! We saw your 91 Dribbling score on ScoutX AI. Are you available for a trial?`,
-          createdAt: new Date(),
+          message: `Hello ${userName}! We observed your verified 90+ overall rating on ScoutX-AI. Are you available for trials in Mumbai?`,
+          createdAt: new Date().toISOString(),
         },
       ]);
     } finally {
@@ -96,12 +83,11 @@ export default function MessagesScreen({ route, navigation }) {
     const newMsgText = inputMessage.trim();
     setInputMessage('');
 
-    // Optimistically add to UI
     const tempMsg = {
       _id: `temp_${Date.now()}`,
       sender: { _id: currentUserId || 'me', name: userName },
       message: newMsgText,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempMsg]);
 
@@ -126,179 +112,311 @@ export default function MessagesScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B0F19" />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Top Navigation Bar */}
+      <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
         >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={18} color={COLORS.textPrimary} style={{ marginRight: 6 }} />
+          <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.headerTitle}>{activeRecipient.name}</Text>
-          <Text style={styles.headerSub}>
-            {activeRecipient.role === 'coach' ? '🛡️ Verified Football Scout' : '⚽ Football Prospect'}
-          </Text>
+
+        <View style={styles.recipientHeader}>
+          <View style={styles.recipientAvatar}>
+            <Text style={styles.recipientAvatarText}>
+              {(activeRecipient.name || 'C').charAt(0).toUpperCase()}
+            </Text>
+          </View>
+          <View>
+            <View style={styles.recipientNameRow}>
+              <Text style={styles.recipientName}>{activeRecipient.name}</Text>
+              <View style={styles.roleTag}>
+                <Text style={styles.roleTagText}>{(activeRecipient.role || 'COACH').toUpperCase()}</Text>
+              </View>
+            </View>
+            <Text style={styles.recipientSub}>
+              {activeRecipient.club || 'Youth Football Academy'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.brand}>
+          <View style={styles.logoBadge}>
+            <Ionicons name="football" size={14} color="#FFFFFF" />
+          </View>
+          <Text style={styles.brandName}>ScoutX<Text style={styles.brandAccent}>.AI</Text></Text>
         </View>
       </View>
 
-      {/* Message History */}
-      <ScrollView
-        contentContainerStyle={styles.messagesContent}
-        ref={(ref) => ref && ref.scrollToEnd({ animated: true })}
-      >
-        {loading ? (
-          <ActivityIndicator color="#10B981" style={{ marginTop: 20 }} />
-        ) : (
-          messages.map((msg, index) => {
-            const isMe = msg.sender?._id !== activeRecipient._id;
-            return (
-              <View
-                key={msg._id || index}
-                style={[
-                  styles.messageBubble,
-                  isMe ? styles.myMessage : styles.theirMessage,
-                ]}
-              >
-                <Text style={[styles.messageSender, isMe && { color: '#A7F3D0' }]}>
-                  {isMe ? 'You' : activeRecipient.name}
-                </Text>
-                <Text style={styles.messageText}>{msg.message}</Text>
-                <Text style={styles.messageTime}>
-                  {new Date(msg.createdAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </Text>
-              </View>
-            );
-          })
-        )}
-      </ScrollView>
-
-      {/* Input Bar */}
-      <View style={styles.inputBar}>
-        <TextInput
-          style={styles.textInput}
-          placeholder="Type a message (e.g. trial dates, location)..."
-          placeholderTextColor="#64748B"
-          value={inputMessage}
-          onChangeText={setInputMessage}
-          onSubmitEditing={handleSendMessage}
-        />
-        <TouchableOpacity
-          style={styles.sendButton}
-          onPress={handleSendMessage}
-          disabled={sending || !inputMessage.trim()}
+      <View style={styles.chatContainer}>
+        {/* Messages Stream */}
+        <ScrollView
+          style={styles.messagesStream}
+          contentContainerStyle={styles.messagesContent}
+          ref={(ref) => ref && ref.scrollToEnd({ animated: true })}
+          showsVerticalScrollIndicator={false}
         >
-          <Ionicons name="send" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
+          <View style={styles.encryptedBanner}>
+            <Ionicons name="lock-closed" size={12} color={COLORS.textMuted} style={{ marginRight: 4 }} />
+            <Text style={styles.encryptedText}>Direct communication between verified athletes and certified scouts</Text>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator color={COLORS.primary} style={{ marginTop: 24 }} />
+          ) : (
+            messages.map((msg, index) => {
+              const isMe = msg.sender?._id !== activeRecipient._id;
+              return (
+                <View
+                  key={msg._id || index}
+                  style={[styles.messageBubbleWrapper, isMe ? styles.bubbleMeWrapper : styles.bubbleThemWrapper]}
+                >
+                  <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+                    <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
+                      {msg.message}
+                    </Text>
+                    <Text style={[styles.timestamp, isMe ? styles.timestampMe : styles.timestampThem]}>
+                      {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+
+        {/* Input Composer Bar */}
+        <View style={styles.composerBar}>
+          <TextInput
+            style={styles.composerInput}
+            placeholder="Type a message to discuss trials or training..."
+            placeholderTextColor={COLORS.textMuted}
+            value={inputMessage}
+            onChangeText={setInputMessage}
+            multiline
+            maxLength={1000}
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, !inputMessage.trim() && styles.sendButtonDisabled]}
+            onPress={handleSendMessage}
+            disabled={!inputMessage.trim() || sending}
+          >
+            {sending ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Ionicons name="send" size={16} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#0B0F19',
+    backgroundColor: '#FFFFFF',
   },
-  header: {
+  topBar: {
+    height: 60,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#1E293B',
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    backgroundColor: '#FFFFFF',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  backButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  recipientHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  recipientAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primaryBorder,
+    alignItems: 'center',
     justifyContent: 'center',
+  },
+  recipientAvatarText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.primaryDark,
+  },
+  recipientNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  recipientName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  roleTag: {
+    backgroundColor: COLORS.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: RADIUS.xs,
+  },
+  roleTagText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+  },
+  recipientSub: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+  },
+  brand: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  headerTitle: {
-    color: '#F8FAFC',
-    fontSize: 17,
-    fontWeight: '800',
+  logoBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: RADIUS.xs,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
   },
-  headerSub: {
-    color: '#10B981',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 2,
+  brandName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  brandAccent: {
+    color: COLORS.primary,
+  },
+  chatContainer: {
+    flex: 1,
+    backgroundColor: COLORS.backgroundSecondary,
+  },
+  messagesStream: {
+    flex: 1,
   },
   messagesContent: {
-    padding: 16,
-    gap: 12,
-    flexGrow: 1,
+    padding: SPACING.md,
+    maxWidth: 780,
+    width: '100%',
+    marginHorizontal: 'auto',
   },
-  messageBubble: {
-    maxWidth: '82%',
-    padding: 14,
-    borderRadius: 16,
+  encryptedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    marginBottom: 16,
   },
-  myMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#065F46',
-    borderBottomRightRadius: 4,
-  },
-  theirMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#1E293B',
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  messageSender: {
-    color: '#38BDF8',
+  encryptedText: {
     fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 4,
+    color: COLORS.textMuted,
+  },
+  messageBubbleWrapper: {
+    marginBottom: 12,
+    flexDirection: 'row',
+  },
+  bubbleMeWrapper: {
+    justifyContent: 'flex-end',
+  },
+  bubbleThemWrapper: {
+    justifyContent: 'flex-start',
+  },
+  bubble: {
+    maxWidth: '75%',
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    ...SHADOWS.subtle,
+  },
+  bubbleMe: {
+    backgroundColor: COLORS.primary,
+    borderBottomRightRadius: 2,
+  },
+  bubbleThem: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderBottomLeftRadius: 2,
   },
   messageText: {
-    color: '#FFFFFF',
     fontSize: 14,
     lineHeight: 20,
   },
-  messageTime: {
-    color: '#94A3B8',
+  messageTextMe: {
+    color: '#FFFFFF',
+  },
+  messageTextThem: {
+    color: COLORS.textPrimary,
+  },
+  timestamp: {
     fontSize: 10,
-    marginTop: 6,
+    marginTop: 4,
     alignSelf: 'flex-end',
   },
-  inputBar: {
+  timestampMe: {
+    color: 'rgba(255, 255, 255, 0.75)',
+  },
+  timestampThem: {
+    color: COLORS.textMuted,
+  },
+  composerBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: COLORS.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 10,
     gap: 10,
+    maxWidth: 820,
+    width: '100%',
+    marginHorizontal: 'auto',
   },
-  textInput: {
+  composerInput: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    color: '#FFFFFF',
-    fontSize: 14,
+    backgroundColor: COLORS.backgroundSecondary,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    maxHeight: 100,
   },
   sendButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#10B981',
-    justifyContent: 'center',
+    width: 38,
+    height: 38,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.primary,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
   },
 });

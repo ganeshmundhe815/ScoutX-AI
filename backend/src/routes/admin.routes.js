@@ -8,6 +8,7 @@ const {
   getAdminCoaches,
   getAdminAssessments,
   deleteUser,
+  exportUsersExcel,
 } = require('../controllers/adminController');
 const { protect, authorizeRoles } = require('../middleware/authMiddleware');
 
@@ -16,6 +17,7 @@ router.use(protect, authorizeRoles('admin'));
 
 router.get('/stats', getPlatformStats);
 router.get('/users', getAllUsers);
+router.get('/export/users', exportUsersExcel);
 router.put('/users/:id/status', toggleUserStatus);
 router.delete('/users/:id', deleteUser);
 router.get('/players', getAdminPlayers);

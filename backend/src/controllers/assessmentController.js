@@ -1,98 +1,86 @@
 const FootballAssessment = require('../models/FootballAssessment');
 const PlayerProfile = require('../models/PlayerProfile');
 const { sendVideoToAI } = require('../services/aiService');
+const {
+  calculateMetricsAndScores,
+  persistScoreAndMetricsToDB,
+} = require('../services/scoringReportService');
 const embeddedStore = require('../config/embeddedStore');
 const mongoose = require('mongoose');
 
-// @desc    Upload & Analyze Football Drill Video (Dribbling, Shooting, Ball Control)
+// @desc    Upload & Analyze Football Drill Video (DFD: P1 -> P2 -> D1 -> P3 -> P4 -> D2 -> P5)
 // @route   POST /api/assessments/analyze
 // @access  Private (Player)
 const uploadAndAnalyzeDrill = async (req, res, next) => {
   try {
-    const drillType = req.body.drillType || 'dribbling';
+    const drillType = req.body.drillType || req.body.drill_type || 'dribbling';
     const videoFile = req.file;
     const videoPath = videoFile ? videoFile.path : '';
     const playerName = req.user ? req.user.name : 'Football Player';
 
-    console.log(`⚽ [Football AI Engine] Ingesting ${drillType.toUpperCase()} video: ${videoPath || 'Direct Stream'} for ${playerName}`);
+    console.log(
+      `⚽ [P2 -> D1 -> P3 AI Engine] Ingesting ${drillType.toUpperCase()} video: ${
+        videoPath || 'Direct Stream'
+      } for ${playerName}`
+    );
 
-    // 1. Send video to Python AI Computer Vision Engine (Port 8000)
+    // 1. P3 — FOOTBALL AI ANALYSIS: Send video to Python AI Computer Vision Engine (Port 8000)
     const aiResult = await sendVideoToAI(videoPath, drillType);
-    const rawMetrics = aiResult.metrics || {};
-    const aiScore = aiResult.drillScore || (rawMetrics.dribblingScore || rawMetrics.shootingScore || 85.0);
 
-    const dribblingData = {
-      score: drillType === 'dribbling' ? aiScore : (rawMetrics.dribbling?.score || 82),
-      durationSec: rawMetrics.durationSec || 11.2,
-      ballTouches: rawMetrics.ballTouches || rawMetrics.touchesCount || 14,
-      controlConsistency: rawMetrics.controlConsistency || 88.0,
-      avgPlayerBallDistance: rawMetrics.avgPlayerBallDistance || 0.42,
-      directionChanges: rawMetrics.directionChanges || 5,
-    };
+    // 2. P4 — SCORING & REPORTS: Calculate ER Diagram METRIC (1:N) & SCORE (1:1) entities
+    const {
+      dribblingData,
+      shootingData,
+      ballControlData,
+      footUsageData,
+      scoreEntity,
+      metricsEntities,
+      feedbackList,
+      overallScore,
+    } = calculateMetricsAndScores(aiResult, drillType);
 
-    const shootingData = {
-      score: drillType === 'shooting' ? aiScore : (rawMetrics.shooting?.score || 80),
-      shotsCount: rawMetrics.shotsCount || 5,
-      onTargetAccuracy: rawMetrics.onTargetAccuracy || 78.0,
-      goalsDetected: rawMetrics.goalsDetected || 3,
-      estimatedPower: rawMetrics.estimatedPower || 81.0,
-      shotDirection: rawMetrics.shotDirection || 'Top-Right Corner',
-    };
-
-    const ballControlData = {
-      score: drillType === 'ball_control' ? aiScore : (rawMetrics.ballControl?.score || 84),
-      touchesCount: rawMetrics.touchesCount || rawMetrics.ballTouches || 26,
-      playerBallDistance: rawMetrics.playerBallDistance || 0.36,
-      controlConsistency: rawMetrics.controlConsistency || 89.0,
-      reboundControlScore: rawMetrics.reboundControlScore || 86.0,
-    };
-
-    const leftPct = rawMetrics.leftFootPercentage || (drillType === 'dribbling' ? 32.0 : 25.0);
-    const rightPct = rawMetrics.rightFootPercentage || (100.0 - leftPct);
-
-    const footUsageData = {
-      leftFootPercentage: leftPct,
-      rightFootPercentage: rightPct,
-      leftFootTouches: rawMetrics.leftFootTouches || Math.round(dribblingData.ballTouches * (leftPct / 100)),
-      rightFootTouches: rawMetrics.rightFootTouches || (dribblingData.ballTouches - Math.round(dribblingData.ballTouches * (leftPct / 100))),
-      preferredFoot: rightPct >= leftPct ? 'Right' : 'Left',
-    };
-
-    const feedbackList = aiResult.feedback && aiResult.feedback.length > 0
-      ? aiResult.feedback
-      : [
-          `Dynamic AI Computer Vision Analysis completed for ${drillType.toUpperCase()}!`,
-          `Detected ${dribblingData.ballTouches} touches with ${dribblingData.controlConsistency}% close control consistency.`,
-          `Foot Balance: ${leftPct}% Left Foot / ${rightPct}% Right Foot.`,
-        ];
-
+    const assessmentIdCode = `ASM-${Math.floor(100000 + Math.random() * 900000)}`;
     let playerProfileDoc;
     let assessmentDoc;
 
+    // 3. D2 — MONGODB: Save Assessment, Score (1:1), Metrics (1:N), and Update Athlete Profile
     if (mongoose.connection.readyState === 1) {
       playerProfileDoc = await PlayerProfile.findOne({ user: req.user._id });
       if (!playerProfileDoc) {
         playerProfileDoc = await PlayerProfile.create({
           user: req.user._id,
-          age: 17,
+          user_id: req.user._id,
+          age: 18,
           position: 'Striker',
+          playing_position: 'Striker',
+          city: req.user.location?.city || 'Bengaluru',
           preferredFoot: footUsageData.preferredFoot,
         });
       }
 
       assessmentDoc = await FootballAssessment.create({
+        assessment_id: assessmentIdCode,
         player: playerProfileDoc._id,
+        athlete_id: playerProfileDoc._id,
         drillType,
-        overallScore: Math.round(aiScore),
-        videoUrl: videoPath,
+        drill_type: drillType,
+        status: 'completed',
+        overallScore: Math.round(overallScore),
+        videoUrl: videoPath || `/uploads/football_${drillType}_clip.mp4`,
+        video_url: videoPath || `/uploads/football_${drillType}_clip.mp4`,
         annotatedVideoUrl: aiResult.processedVideoPath || '',
+        score: scoreEntity,
+        metricsList: metricsEntities,
         dribbling: dribblingData,
         shooting: shootingData,
         ballControl: ballControlData,
         footUsage: footUsageData,
         feedback: feedbackList,
-        confidenceScore: aiResult.aiConfidenceScore || 0.95,
+        confidenceScore: aiResult.aiConfidenceScore || 0.96,
       });
+
+      // Persist standalone ER Diagram SCORE (1:1) & METRIC (1:N) documents
+      await persistScoreAndMetricsToDB(assessmentDoc._id, scoreEntity, metricsEntities);
 
       if (drillType === 'dribbling') {
         playerProfileDoc.dribblingScore = dribblingData.score;
@@ -104,56 +92,110 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
         playerProfileDoc.ballControlScore = ballControlData.score;
       }
 
+      playerProfileDoc.scoreSummary = {
+        technique: scoreEntity.technique,
+        consistency: scoreEntity.consistency,
+        accuracy: scoreEntity.accuracy,
+        endurance: scoreEntity.endurance,
+        overall: scoreEntity.overall,
+      };
       playerProfileDoc.assessmentCount += 1;
-      const scores = [
-        playerProfileDoc.dribblingScore || 75,
-        playerProfileDoc.shootingScore || 75,
-        playerProfileDoc.ballControlScore || 75,
-      ];
-      playerProfileDoc.overallScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-      playerProfileDoc.nationalPercentile = Math.min(99.2, Math.round(60.0 + playerProfileDoc.overallScore * 0.4));
-      await playerProfileDoc.save();
-    } else {
-      // In-Memory Mode with Dynamic Metrics
-      playerProfileDoc =
-        embeddedStore.playerProfiles.find((p) => p.user === req.user?._id) ||
-        embeddedStore.playerProfiles[0];
-
-      if (drillType === 'dribbling') playerProfileDoc.dribblingScore = Math.round(dribblingData.score);
-      if (drillType === 'shooting') playerProfileDoc.shootingScore = Math.round(shootingData.score);
-      if (drillType === 'ball_control') playerProfileDoc.ballControlScore = Math.round(ballControlData.score);
 
       const scores = [
         playerProfileDoc.dribblingScore || 80,
         playerProfileDoc.shootingScore || 80,
         playerProfileDoc.ballControlScore || 80,
       ];
-      playerProfileDoc.overallScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-      playerProfileDoc.nationalPercentile = Math.min(99.2, Math.round(60.0 + playerProfileDoc.overallScore * 0.4));
+      playerProfileDoc.overallScore = Math.round(
+        scores.reduce((a, b) => a + b, 0) / scores.length
+      );
+      playerProfileDoc.nationalPercentile = Math.min(
+        99.4,
+        Math.round(60.0 + playerProfileDoc.overallScore * 0.4)
+      );
+      await playerProfileDoc.save();
+    } else {
+      // In-Memory Mode with Full ER Entity Mirror
+      playerProfileDoc =
+        embeddedStore.playerProfiles.find((p) => p.user === req.user?._id) ||
+        embeddedStore.playerProfiles[0];
+
+      if (drillType === 'dribbling')
+        playerProfileDoc.dribblingScore = Math.round(dribblingData.score);
+      if (drillType === 'shooting')
+        playerProfileDoc.shootingScore = Math.round(shootingData.score);
+      if (drillType === 'ball_control')
+        playerProfileDoc.ballControlScore = Math.round(ballControlData.score);
+
+      playerProfileDoc.scoreSummary = {
+        technique: scoreEntity.technique,
+        consistency: scoreEntity.consistency,
+        accuracy: scoreEntity.accuracy,
+        endurance: scoreEntity.endurance,
+        overall: scoreEntity.overall,
+      };
+
+      const scores = [
+        playerProfileDoc.dribblingScore || 84,
+        playerProfileDoc.shootingScore || 84,
+        playerProfileDoc.ballControlScore || 84,
+      ];
+      playerProfileDoc.overallScore = Math.round(
+        scores.reduce((a, b) => a + b, 0) / scores.length
+      );
+      playerProfileDoc.nationalPercentile = Math.min(
+        99.4,
+        Math.round(60.0 + playerProfileDoc.overallScore * 0.4)
+      );
       playerProfileDoc.assessmentCount = (playerProfileDoc.assessmentCount || 1) + 1;
+
+      const scoreWithFk = { ...scoreEntity, assessment_id: assessmentIdCode };
+      const metricsWithFk = metricsEntities.map((m) => ({
+        ...m,
+        assessment_id: assessmentIdCode,
+      }));
+
+      embeddedStore.scores.push(scoreWithFk);
+      embeddedStore.metrics.push(...metricsWithFk);
 
       assessmentDoc = {
         _id: `assess_${Date.now()}`,
+        assessment_id: assessmentIdCode,
         player: playerProfileDoc._id,
+        athlete_id: playerProfileDoc.athlete_id || playerProfileDoc.playerId,
         drillType,
-        overallScore: Math.round(aiScore),
+        drill_type: drillType,
+        videoUrl: videoPath || `/uploads/football_${drillType}_clip.mp4`,
+        video_url: videoPath || `/uploads/football_${drillType}_clip.mp4`,
+        status: 'completed',
+        overallScore: Math.round(overallScore),
+        score: scoreWithFk,
+        metricsList: metricsWithFk,
         dribbling: dribblingData,
         shooting: shootingData,
         ballControl: ballControlData,
         footUsage: footUsageData,
         feedback: feedbackList,
+        confidenceScore: aiResult.aiConfidenceScore || 0.96,
         createdAt: new Date(),
       };
-      embeddedStore.footballAssessments.push(assessmentDoc);
+      embeddedStore.footballAssessments.unshift(assessmentDoc);
     }
 
     res.status(201).json({
       status: 'success',
-      message: `AI Football Analysis completed for ${drillType.toUpperCase()}! ⚽🏆`,
+      message: `AI Football Analysis & P4 Scoring completed for ${drillType.toUpperCase()}! ⚽🏆`,
       data: {
         assessmentId: assessmentDoc._id,
+        assessment_id: assessmentDoc.assessment_id || assessmentIdCode,
+        athlete_id: playerProfileDoc.athlete_id || playerProfileDoc.playerId,
         drillType,
+        drill_type: drillType,
+        video_url: assessmentDoc.video_url || assessmentDoc.videoUrl,
+        status: 'completed',
         overallScore: assessmentDoc.overallScore,
+        score: scoreEntity,
+        metricsList: metricsEntities,
         metrics: {
           dribbling: dribblingData,
           shooting: shootingData,
@@ -162,10 +204,12 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
         },
         feedback: feedbackList,
         updatedPlayerProfile: {
+          athlete_id: playerProfileDoc.athlete_id || playerProfileDoc.playerId,
           overallScore: playerProfileDoc.overallScore,
           dribblingScore: playerProfileDoc.dribblingScore,
           shootingScore: playerProfileDoc.shootingScore,
           ballControlScore: playerProfileDoc.ballControlScore,
+          scoreSummary: playerProfileDoc.scoreSummary,
           nationalPercentile: playerProfileDoc.nationalPercentile,
           assessmentCount: playerProfileDoc.assessmentCount,
         },
@@ -177,7 +221,7 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
   }
 };
 
-// @desc    Get All Assessments for Current Player
+// @desc    Get All Assessments for Current Player (P5 — Role-Based Features: Player results & history)
 // @route   GET /api/assessments
 // @access  Private (Player)
 const getPlayerAssessments = async (req, res, next) => {
@@ -187,16 +231,31 @@ const getPlayerAssessments = async (req, res, next) => {
       if (!profile) {
         return res.status(200).json({ status: 'success', count: 0, data: [] });
       }
-      const assessments = await FootballAssessment.find({ player: profile._id }).sort({ createdAt: -1 });
-      return res.status(200).json({ status: 'success', count: assessments.length, data: assessments });
+      const assessments = await FootballAssessment.find({ player: profile._id }).sort({
+        createdAt: -1,
+      });
+      return res.status(200).json({
+        status: 'success',
+        count: assessments.length,
+        data: assessments,
+      });
     }
 
-    // In-memory fallback
-    const assessments = embeddedStore.footballAssessments;
+    // In-memory mode: filter by current authenticated athlete
+    const playerProf = embeddedStore.playerProfiles.find(
+      (p) => p.user === req.user?._id || p.user_id === req.user?._id
+    );
+    if (!playerProf) {
+      return res.status(200).json({ status: 'success', count: 0, data: [] });
+    }
+    const athleteId = playerProf.athlete_id || playerProf.playerId;
+    const playerAssessments = embeddedStore.footballAssessments.filter(
+      (a) => a.athlete_id === athleteId || a.player === playerProf._id || a.player === playerProf
+    );
     res.status(200).json({
       status: 'success',
-      count: assessments.length,
-      data: assessments,
+      count: playerAssessments.length,
+      data: playerAssessments,
     });
   } catch (error) {
     next(error);
@@ -211,10 +270,18 @@ const runDemoSampleAssessment = async (req, res, next) => {
     const { starId = 'star_chhetri', drillType = 'shooting' } = req.body;
     const benchmarkService = require('../services/benchmarkService');
     const result = benchmarkService.createDemoAssessment(starId, drillType);
+    const { scoreEntity, metricsEntities } = calculateMetricsAndScores(result, drillType);
 
     res.status(200).json({
       status: 'success',
-      data: result,
+      data: {
+        ...result,
+        assessment_id: `ASM-DEMO-${Math.floor(1000 + Math.random() * 9000)}`,
+        drill_type: drillType,
+        status: 'completed',
+        score: scoreEntity,
+        metricsList: metricsEntities,
+      },
     });
   } catch (error) {
     next(error);
@@ -227,4 +294,3 @@ module.exports = {
   getMyAssessments: getPlayerAssessments,
   runDemoSampleAssessment,
 };
-

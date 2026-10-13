@@ -8,12 +8,14 @@ import {
   SafeAreaView,
   StatusBar,
   ScrollView,
-  Alert,
   ActivityIndicator,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_API_URL } from '../services/apiConfig';
+import SocialAuthModal from '../components/SocialAuthModal';
+import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
 const FOOTBALL_POSITIONS = [
   'Striker',
@@ -28,35 +30,48 @@ const FOOTBALL_POSITIONS = [
 
 const PREFERRED_FEET = ['Right', 'Left', 'Both'];
 
-export default function RegisterScreen({ navigation }) {
-  const [role, setRole] = useState('player');
+export default function RegisterScreen({ navigation, route }) {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 860;
+
+  // Check if role was pre-selected (e.g., from "Join as a Coach" button)
+  const initialRole = route?.params?.preselectedRole === 'coach' ? 'coach' : 'player';
+
+  const [role, setRole] = useState(initialRole);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [stateName, setStateName] = useState('Maharashtra');
-  const [district, setDistrict] = useState('Pune');
   const [city, setCity] = useState('Pune');
 
   // Player fields
   const [age, setAge] = useState('17');
   const [position, setPosition] = useState('Striker');
   const [preferredFoot, setPreferredFoot] = useState('Right');
-  const [clubOrTeam, setClubOrTeam] = useState('FC Grassroots Pune');
-  const [heightCm, setHeightCm] = useState('175');
-  const [weightKg, setWeightKg] = useState('68');
+  const [heightCm, setHeightCm] = useState('');
+  const [weightKg, setWeightKg] = useState('');
+  const [clubOrTeam, setClubOrTeam] = useState('Grassroots Academy');
 
   // Coach fields
   const [clubOrAcademy, setClubOrAcademy] = useState('Youth Football Scouts');
-  const [licenseLevel, setLicenseLevel] = useState('AFC C / UEFA C');
+  const [licenseLevel, setLicenseLevel] = useState('AFC C License');
   const [experienceYears, setExperienceYears] = useState('5');
 
   const [loading, setLoading] = useState(false);
+  const [socialModalVisible, setSocialModalVisible] = useState(false);
+  const [socialProvider, setSocialProvider] = useState('google');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const saveSessionAndNavigate = (sessionData) => {
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
       try {
         localStorage.setItem('scoutx_user_session', JSON.stringify(sessionData));
+        if (sessionData.userToken) {
+          localStorage.setItem('scoutx_token', sessionData.userToken);
+        }
       } catch (e) {
         console.warn('[Session Save Error]:', e);
       }
@@ -64,10 +79,49 @@ export default function RegisterScreen({ navigation }) {
     navigation.replace('Home', sessionData);
   };
 
+  const openSocialRegister = (provider) => {
+    setErrorMessage('');
+    setSocialProvider(provider);
+    setSocialModalVisible(true);
+  };
+
   const handleRegister = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
-      Alert.alert('Missing Info', 'Please fill in Name, Email, and Password.');
+    setErrorMessage('');
+
+    // Common validations
+    if (!name.trim()) {
+      setErrorMessage('Please enter your full name.');
       return;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+    if (!password || password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setErrorMessage('Passwords do not match. Please verify your password confirmation.');
+      return;
+    }
+
+    // Athlete height & weight validation (optional)
+    if (role === 'player') {
+      if (heightCm.trim()) {
+        const h = Number(heightCm.trim());
+        if (isNaN(h) || h < 80 || h > 250) {
+          setErrorMessage('Height must be a valid number between 80 cm and 250 cm.');
+          return;
+        }
+      }
+      if (weightKg.trim()) {
+        const w = Number(weightKg.trim());
+        if (isNaN(w) || w < 25 || w > 200) {
+          setErrorMessage('Weight must be a valid number between 25 kg and 200 kg.');
+          return;
+        }
+      }
     }
 
     setLoading(true);
@@ -79,20 +133,20 @@ export default function RegisterScreen({ navigation }) {
         password,
         role,
         state: stateName,
-        district,
+        district: city,
         city,
         ...(role === 'player' && {
-          age: Number(age),
+          age: Number(age) || 17,
           position,
           preferredFoot,
           clubOrTeam,
-          heightCm: Number(heightCm),
-          weightKg: Number(weightKg),
+          heightCm: heightCm.trim() ? Number(heightCm.trim()) : null,
+          weightKg: weightKg.trim() ? Number(weightKg.trim()) : null,
         }),
         ...(role === 'coach' && {
           clubOrAcademy,
           licenseLevel,
-          experienceYears: Number(experienceYears),
+          experienceYears: Number(experienceYears) || 3,
         }),
       };
 
@@ -109,462 +163,815 @@ export default function RegisterScreen({ navigation }) {
       if (response.ok && data.status === 'success') {
         const sessionData = {
           userRole: role,
-          userEmail: email,
-          userName: name,
+          userId: data.data?._id || data.data?.user_id,
+          userEmail: email.trim().toLowerCase(),
+          userName: name.trim(),
           userToken: data.data?.token,
-          userLocation: { state: stateName, district, city },
+          userLocation: { state: stateName, district: city, city },
           playerProfile: data.data?.profile,
         };
+
         saveSessionAndNavigate(sessionData);
       } else {
-        const fallbackSession = {
-          userRole: role,
-          userEmail: email,
-          userName: name,
-          userLocation: { state: stateName, city },
-        };
-        saveSessionAndNavigate(fallbackSession);
+        // Real validation error from server (e.g. Email exists, 403 Forbidden on code)
+        setErrorMessage(data.message || 'Registration failed. Please check the provided information.');
       }
     } catch (error) {
-      console.warn(`[Register Notice]: ${error.message}. Running in offline session.`);
-      const offlineSession = {
-        userRole: role,
-        userEmail: email,
-        userName: name,
-        userLocation: { state: stateName, city },
-      };
-      saveSessionAndNavigate(offlineSession);
+      console.error('[Register Error]:', error);
+      setErrorMessage('Unable to connect to the registration service. Please verify your network.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B0F19" />
-      
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create ScoutX Account</Text>
-          <Text style={styles.headerSub}>Democratizing Football Scouting Across India 🇮🇳</Text>
-        </View>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-        {/* Role Selector Tabs */}
-        <View style={styles.roleToggleContainer}>
-          <TouchableOpacity
-            style={[styles.roleTab, role === 'player' && styles.roleTabActive]}
-            onPress={() => setRole('player')}
-          >
-            <Ionicons
-              name="person"
-              size={16}
-              color={role === 'player' ? '#FFFFFF' : '#94A3B8'}
-            />
-            <Text style={[styles.roleTabText, role === 'player' && styles.roleTabTextActive]}>
-              Player Account
+      {/* Top Header / Back Bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate('Landing')}
+        >
+          <Ionicons name="arrow-back" size={18} color={COLORS.textPrimary} style={{ marginRight: 6 }} />
+          <Text style={styles.backButtonText}>Back to Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.brand}
+          onPress={() => navigation.navigate('Landing')}
+        >
+          <View style={styles.logoBadge}>
+            <Ionicons name="football" size={16} color="#FFFFFF" />
+          </View>
+          <Text style={styles.brandName}>ScoutX<Text style={styles.brandAccent}>.AI</Text></Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.formContainer}>
+          {/* Header Block */}
+          <View style={styles.formHeader}>
+            <Text style={styles.pageTitle}>Create ScoutX-AI Account</Text>
+            <Text style={styles.pageSubtitle}>
+              Join the football talent intelligence network. Select your primary role to begin.
             </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.roleTab, role === 'coach' && styles.roleTabActive]}
-            onPress={() => setRole('coach')}
-          >
-            <Ionicons
-              name="shield-checkmark"
-              size={16}
-              color={role === 'coach' ? '#FFFFFF' : '#94A3B8'}
-            />
-            <Text style={[styles.roleTabText, role === 'coach' && styles.roleTabTextActive]}>
-              Coach / Scout Account
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Form */}
-        <View style={styles.form}>
-          <Text style={styles.inputLabel}>Full Name</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="person-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Sunil Chhetri Jr"
-              placeholderTextColor="#64748B"
-              value={name}
-              onChangeText={setName}
-            />
           </View>
 
-          <Text style={styles.inputLabel}>Email Address</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="mail-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="player@scoutx.com"
-              placeholderTextColor="#64748B"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
-            />
+          {/* Role Segmented Selector */}
+          <View style={styles.roleSelectorGroup}>
+            <Text style={styles.sectionLabel}>Select Your Platform Role</Text>
+            <View style={styles.roleCardsRow}>
+              {/* Role 1: Player */}
+              <TouchableOpacity
+                style={[styles.roleCard, role === 'player' && styles.roleCardActive]}
+                onPress={() => {
+                  setRole('player');
+                  setErrorMessage('');
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.roleIconBadge, role === 'player' && styles.roleIconBadgeActive]}>
+                  <Ionicons
+                    name="football"
+                    size={20}
+                    color={role === 'player' ? COLORS.primary : COLORS.textSecondary}
+                  />
+                </View>
+                <Text style={[styles.roleCardTitle, role === 'player' && styles.roleCardTitleActive]}>
+                  Player / Athlete
+                </Text>
+                <Text style={styles.roleCardDesc}>Record drills & build verified performance profile</Text>
+              </TouchableOpacity>
+
+              {/* Role 2: Coach */}
+              <TouchableOpacity
+                style={[styles.roleCard, role === 'coach' && styles.roleCardActive]}
+                onPress={() => {
+                  setRole('coach');
+                  setErrorMessage('');
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.roleIconBadge, role === 'coach' && styles.roleIconBadgeActive]}>
+                  <Ionicons
+                    name="briefcase"
+                    size={20}
+                    color={role === 'coach' ? COLORS.primary : COLORS.textSecondary}
+                  />
+                </View>
+                <Text style={[styles.roleCardTitle, role === 'coach' && styles.roleCardTitleActive]}>
+                  Coach / Scout
+                </Text>
+                <Text style={styles.roleCardDesc}>Discover grassroots players & shortlist talent</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <Text style={styles.inputLabel}>Password</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Minimum 6 characters"
-              placeholderTextColor="#64748B"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-            />
-            <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowPassword(!showPassword)}
-            >
-              <Ionicons
-                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                size={20}
-                color="#94A3B8"
+          {/* Error Banner */}
+          {errorMessage ? (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle" size={18} color={COLORS.accentRed} style={{ marginRight: 8 }} />
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          ) : null}
+
+          {/* Form Fields Card */}
+          <View style={styles.fieldsCard}>
+            <Text style={styles.cardSectionTitle}>Account Credentials</Text>
+
+            {/* Full Name */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Full Name</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. Sunil Chhetri"
+                placeholderTextColor={COLORS.textMuted}
+                value={name}
+                onChangeText={(t) => {
+                  setName(t);
+                  setErrorMessage('');
+                }}
               />
-            </TouchableOpacity>
-          </View>
+            </View>
 
-          {/* Location Row */}
-          <View style={styles.rowInputs}>
-            <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={styles.inputLabel}>State</Text>
-              <View style={styles.inputContainer}>
+            {/* Email */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="name@footballacademy.com"
+                placeholderTextColor={COLORS.textMuted}
+                value={email}
+                onChangeText={(t) => {
+                  setEmail(t);
+                  setErrorMessage('');
+                }}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            </View>
+
+            {/* Password & Confirm Password */}
+            <View style={[styles.twoColRow, isDesktop && styles.twoColRowDesktop]}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Password (min. 6 characters)</Text>
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={[styles.textInput, { paddingRight: 42 }]}
+                    placeholder="••••••••••••"
+                    placeholderTextColor={COLORS.textMuted}
+                    value={password}
+                    onChangeText={(t) => {
+                      setPassword(t);
+                      setErrorMessage('');
+                    }}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeToggleBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={COLORS.textMuted}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Confirm Password</Text>
+                <View style={styles.passwordInputWrapper}>
+                  <TextInput
+                    style={[styles.textInput, { paddingRight: 42 }]}
+                    placeholder="••••••••••••"
+                    placeholderTextColor={COLORS.textMuted}
+                    value={confirmPassword}
+                    onChangeText={(t) => {
+                      setConfirmPassword(t);
+                      setErrorMessage('');
+                    }}
+                    secureTextEntry={!showConfirmPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeToggleBtn}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
+                    }
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={COLORS.textMuted}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Geographic Location */}
+            <View style={[styles.twoColRow, isDesktop && styles.twoColRowDesktop]}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>State</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Maharashtra"
-                  placeholderTextColor="#64748B"
+                  style={styles.textInput}
                   value={stateName}
                   onChangeText={setStateName}
+                  placeholder="e.g. Maharashtra"
+                  placeholderTextColor={COLORS.textMuted}
                 />
               </View>
-            </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.inputLabel}>City / District</Text>
-              <View style={styles.inputContainer}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>City / District</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Pune"
-                  placeholderTextColor="#64748B"
-                  value={district}
-                  onChangeText={setDistrict}
+                  style={styles.textInput}
+                  value={city}
+                  onChangeText={setCity}
+                  placeholder="e.g. Pune"
+                  placeholderTextColor={COLORS.textMuted}
                 />
               </View>
             </View>
-          </View>
 
-          {/* PLAYER SPECIFIC INPUTS */}
-          {role === 'player' && (
-            <>
-              <Text style={styles.sectionHeader}>⚽ Football Details</Text>
+            {/* ROLE-SPECIFIC FIELDS */}
 
-              <Text style={styles.inputLabel}>Playing Position</Text>
-              <View style={styles.chipsContainer}>
-                {FOOTBALL_POSITIONS.map((pos) => (
-                  <TouchableOpacity
-                    key={pos}
-                    style={[styles.chip, position === pos && styles.chipActive]}
-                    onPress={() => setPosition(pos)}
-                  >
-                    <Text style={[styles.chipText, position === pos && styles.chipTextActive]}>
-                      {pos}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+            {/* 1. PLAYER SPECIFIC */}
+            {role === 'player' && (
+              <View style={styles.roleSpecificSection}>
+                <Text style={styles.cardSectionTitle}>Athlete Profile Details</Text>
 
-              <Text style={styles.inputLabel}>Preferred Foot</Text>
-              <View style={styles.chipsContainer}>
-                {PREFERRED_FEET.map((foot) => (
-                  <TouchableOpacity
-                    key={foot}
-                    style={[styles.chip, preferredFoot === foot && styles.chipActive]}
-                    onPress={() => setPreferredFoot(foot)}
-                  >
-                    <Text style={[styles.chipText, preferredFoot === foot && styles.chipTextActive]}>
-                      {foot} Foot
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={styles.rowInputs}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={styles.inputLabel}>Age</Text>
-                  <View style={styles.inputContainer}>
+                <View style={[styles.twoColRow, isDesktop && styles.twoColRowDesktop]}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>Age</Text>
                     <TextInput
-                      style={styles.input}
-                      placeholder="17"
-                      placeholderTextColor="#64748B"
-                      keyboardType="numeric"
+                      style={styles.textInput}
                       value={age}
                       onChangeText={setAge}
+                      keyboardType="numeric"
+                      placeholder="17"
+                      placeholderTextColor={COLORS.textMuted}
                     />
                   </View>
-                </View>
 
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Current Club / Academy</Text>
-                  <View style={styles.inputContainer}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>Club / Current Academy</Text>
                     <TextInput
-                      style={styles.input}
-                      placeholder="FC Pune Youth"
-                      placeholderTextColor="#64748B"
+                      style={styles.textInput}
                       value={clubOrTeam}
                       onChangeText={setClubOrTeam}
+                      placeholder="e.g. Pune City Youth"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  </View>
+                </View>
+
+                {/* Playing Position Selector */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Playing Position</Text>
+                  <View style={styles.pillRow}>
+                    {FOOTBALL_POSITIONS.map((pos) => (
+                      <TouchableOpacity
+                        key={pos}
+                        style={[styles.selectorPill, position === pos && styles.selectorPillActive]}
+                        onPress={() => setPosition(pos)}
+                      >
+                        <Text style={[styles.selectorPillText, position === pos && styles.selectorPillTextActive]}>
+                          {pos}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Preferred Foot */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Preferred Foot</Text>
+                  <View style={styles.pillRow}>
+                    {PREFERRED_FEET.map((foot) => (
+                      <TouchableOpacity
+                        key={foot}
+                        style={[styles.selectorPill, preferredFoot === foot && styles.selectorPillActive]}
+                        onPress={() => setPreferredFoot(foot)}
+                      >
+                        <Text style={[styles.selectorPillText, preferredFoot === foot && styles.selectorPillTextActive]}>
+                          {foot}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Height & Weight Optional Measurements */}
+                <View style={[styles.twoColRow, isDesktop && styles.twoColRowDesktop]}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>
+                      Height (cm) <Text style={styles.optionalHint}>(Optional, 80-250)</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={heightCm}
+                      onChangeText={(t) => {
+                        setHeightCm(t);
+                        setErrorMessage('');
+                      }}
+                      keyboardType="numeric"
+                      placeholder="e.g. 175 (Leave empty if unmeasured)"
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                  </View>
+
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>
+                      Weight (kg) <Text style={styles.optionalHint}>(Optional, 25-200)</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={weightKg}
+                      onChangeText={(t) => {
+                        setWeightKg(t);
+                        setErrorMessage('');
+                      }}
+                      keyboardType="numeric"
+                      placeholder="e.g. 68 (Leave empty if unmeasured)"
+                      placeholderTextColor={COLORS.textMuted}
                     />
                   </View>
                 </View>
               </View>
-            </>
-          )}
+            )}
 
-          {/* COACH SPECIFIC INPUTS */}
-          {role === 'coach' && (
-            <>
-              <Text style={styles.sectionHeader}>🛡️ Scout & Coaching Credentials</Text>
+            {/* 2. COACH SPECIFIC */}
+            {role === 'coach' && (
+              <View style={styles.roleSpecificSection}>
+                <Text style={styles.cardSectionTitle}>Coaching Credentials</Text>
 
-              <Text style={styles.inputLabel}>Club / Scouting Organization</Text>
-              <View style={styles.inputContainer}>
-                <Ionicons name="business-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. Mumbai City FC Scouts"
-                  placeholderTextColor="#64748B"
-                  value={clubOrAcademy}
-                  onChangeText={setClubOrAcademy}
-                />
-              </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Club or Academy Organization</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={clubOrAcademy}
+                    onChangeText={setClubOrAcademy}
+                    placeholder="e.g. Bengaluru Youth Scouts"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+                </View>
 
-              <View style={styles.rowInputs}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={styles.inputLabel}>License Level</Text>
-                  <View style={styles.inputContainer}>
+                <View style={[styles.twoColRow, isDesktop && styles.twoColRowDesktop]}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>License Level</Text>
                     <TextInput
-                      style={styles.input}
-                      placeholder="AFC B License"
-                      placeholderTextColor="#64748B"
+                      style={styles.textInput}
                       value={licenseLevel}
                       onChangeText={setLicenseLevel}
+                      placeholder="e.g. AFC C License / UEFA B"
+                      placeholderTextColor={COLORS.textMuted}
                     />
                   </View>
-                </View>
 
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.inputLabel}>Experience (Yrs)</Text>
-                  <View style={styles.inputContainer}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>Years of Scouting Experience</Text>
                     <TextInput
-                      style={styles.input}
-                      placeholder="5"
-                      placeholderTextColor="#64748B"
-                      keyboardType="numeric"
+                      style={styles.textInput}
                       value={experienceYears}
                       onChangeText={setExperienceYears}
+                      keyboardType="numeric"
+                      placeholder="5"
+                      placeholderTextColor={COLORS.textMuted}
                     />
                   </View>
                 </View>
               </View>
-            </>
-          )}
-
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={styles.submitButton}
-            activeOpacity={0.85}
-            onPress={handleRegister}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.submitButtonText}>
-                Complete {role === 'player' ? 'Player' : 'Coach'} Registration 🚀
-              </Text>
             )}
-          </TouchableOpacity>
-        </View>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-            <Text style={styles.loginLink}>Sign In</Text>
-          </TouchableOpacity>
-        </View>
+            {/* Submit Action */}
+            <TouchableOpacity
+              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+              onPress={handleRegister}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Text style={styles.submitButtonText}>
+                    Create {role === 'coach' ? 'Coach' : 'Athlete'} Account
+                  </Text>
+                  <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                </>
+              )}
+            </TouchableOpacity>
 
+            {/* OR Divider */}
+            <View style={styles.oauthDivider}>
+              <View style={styles.oauthDividerLine} />
+              <Text style={styles.oauthDividerText}>OR REGISTER WITH</Text>
+              <View style={styles.oauthDividerLine} />
+            </View>
+
+            {/* Social Registration Buttons */}
+            <View style={styles.socialButtonsGroup}>
+              <TouchableOpacity
+                style={styles.googleButton}
+                onPress={() => openSocialRegister('google')}
+                disabled={loading}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Sign up with Google"
+              >
+                <Ionicons name="logo-google" size={17} color="#EA4335" style={{ marginRight: 8 }} />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.appleButton}
+                onPress={() => openSocialRegister('apple')}
+                disabled={loading}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Sign up with Apple"
+              >
+                <Ionicons name="logo-apple" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.appleButtonText}>Continue with Apple</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Switch to Login */}
+            <View style={styles.switchAuthRow}>
+              <Text style={styles.switchAuthPrompt}>Already have an account?</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <Text style={styles.switchAuthLink}> Sign in instead</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </ScrollView>
+
+      <SocialAuthModal
+        visible={socialModalVisible}
+        provider={socialProvider}
+        role={role}
+        onClose={() => setSocialModalVisible(false)}
+        onSuccess={(sessionData) => saveSessionAndNavigate(sessionData)}
+        onError={(err) => setErrorMessage(err)}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#0B0F19',
+    backgroundColor: '#FFFFFF',
   },
-  scrollContent: {
-    padding: 24,
-    paddingTop: 12,
-  },
-  header: {
-    marginBottom: 20,
+  topBar: {
+    height: 58,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    backgroundColor: '#FFFFFF',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1E293B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#F8FAFC',
-  },
-  headerSub: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 4,
-  },
-  roleToggleContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 20,
-  },
-  roleTab: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
-  roleTabActive: {
-    backgroundColor: '#10B981',
-  },
-  roleTabText: {
-    color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  roleTabTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  sectionHeader: {
-    color: '#38BDF8',
+  backButtonText: {
     fontSize: 14,
-    fontWeight: '800',
-    marginTop: 18,
-    marginBottom: 6,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
   },
-  form: {
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.xs,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  brandName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.3,
+  },
+  brandAccent: {
+    color: COLORS.primary,
+  },
+  scrollContent: {
+    paddingVertical: SPACING.xl,
+    paddingHorizontal: SPACING.md,
+    backgroundColor: COLORS.backgroundSecondary,
+  },
+  formContainer: {
+    maxWidth: 780,
+    width: '100%',
+    marginHorizontal: 'auto',
+  },
+  formHeader: {
+    marginBottom: 24,
+    textAlign: 'center',
+    alignItems: 'center',
+  },
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  pageSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  roleSelectorGroup: {
     marginBottom: 20,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  roleCardsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  roleCard: {
+    flex: 1,
+    minWidth: 200,
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 16,
+    ...SHADOWS.subtle,
+  },
+  roleCardActive: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  roleIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.backgroundSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  roleIconBadgeActive: {
+    backgroundColor: COLORS.primaryLight,
+  },
+  roleCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 4,
+  },
+  roleCardTitleActive: {
+    color: COLORS.primaryDark,
+  },
+  roleCardDesc: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 16,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: RADIUS.sm,
+    padding: 12,
+    marginBottom: 18,
+  },
+  errorText: {
+    fontSize: 13,
+    color: COLORS.accentRed,
+    fontWeight: '500',
+    flex: 1,
+  },
+  fieldsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.xl,
+    ...SHADOWS.card,
+  },
+  cardSectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  inputGroup: {
+    marginBottom: 16,
   },
   inputLabel: {
-    color: '#CBD5E1',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
+    color: COLORS.textPrimary,
     marginBottom: 6,
-    marginTop: 10,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
+  textInput: {
     borderWidth: 1,
-    borderColor: '#334155',
-    paddingHorizontal: 14,
-  },
-  rowInputs: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 12,
-    color: '#FFFFFF',
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     fontSize: 14,
+    color: COLORS.textPrimary,
+    backgroundColor: '#FFFFFF',
   },
-  eyeButton: {
-    padding: 8,
+  twoColRow: {
+    flexDirection: 'column',
+    gap: 12,
   },
-  chipsContainer: {
+  twoColRowDesktop: {
+    flexDirection: 'row',
+  },
+  roleSpecificSection: {
+    marginTop: 12,
+    paddingTop: 8,
+  },
+  pillRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginVertical: 6,
   },
-  chip: {
-    backgroundColor: '#1E293B',
+  selectorPill: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 7,
+    borderRadius: RADIUS.full,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.backgroundSecondary,
   },
-  chipActive: {
-    backgroundColor: '#10B981',
-    borderColor: '#10B981',
+  selectorPillActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
   },
-  chipText: {
-    color: '#94A3B8',
+  selectorPillText: {
     fontSize: 12,
     fontWeight: '600',
+    color: COLORS.textSecondary,
   },
-  chipTextActive: {
-    color: '#FFFFFF',
+  selectorPillTextActive: {
+    color: COLORS.primaryDark,
     fontWeight: '700',
+  },
+  adminSecurityNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primaryBorder,
+    borderRadius: RADIUS.sm,
+    padding: 12,
+    marginBottom: 16,
+  },
+  adminSecurityText: {
+    fontSize: 12,
+    color: COLORS.primaryDark,
+    lineHeight: 18,
+    flex: 1,
+  },
+  fieldHint: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 4,
   },
   submitButton: {
-    backgroundColor: '#10B981',
-    paddingVertical: 16,
-    borderRadius: 14,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,
-    elevation: 4,
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 13,
+    borderRadius: RADIUS.sm,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  submitButtonDisabled: {
+    opacity: 0.65,
   },
   submitButtonText: {
-    color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
-  footer: {
+  switchAuthRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginVertical: 16,
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 8,
   },
-  footerText: {
-    color: '#94A3B8',
-    fontSize: 14,
+  switchAuthPrompt: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
-  loginLink: {
-    color: '#10B981',
-    fontSize: 14,
+  switchAuthLink: {
+    fontSize: 13,
     fontWeight: '700',
+    color: COLORS.primary,
+  },
+  passwordInputWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  eyeToggleBtn: {
+    position: 'absolute',
+    right: 12,
+    padding: 6,
+    zIndex: 2,
+  },
+  optionalHint: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: COLORS.textMuted,
+  },
+  oauthDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+  },
+  oauthDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+  oauthDividerText: {
+    paddingHorizontal: 10,
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    letterSpacing: 0.6,
+  },
+  socialButtonsGroup: {
+    gap: 10,
+    marginBottom: 8,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingVertical: 12,
+    borderRadius: RADIUS.sm,
+    ...SHADOWS.subtle,
+  },
+  googleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  appleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000000',
+    paddingVertical: 12,
+    borderRadius: RADIUS.sm,
+  },
+  appleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

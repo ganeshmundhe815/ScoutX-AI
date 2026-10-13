@@ -109,40 +109,95 @@ const searchAndFilterPlayers = async (req, res, next) => {
   }
 };
 
-// @desc    Shortlist a football player with scouting notes
+// @desc    Shortlist a football player with scouting notes (ER Entity: SHORTLIST)
 // @route   POST /api/scouts/shortlist
 // @access  Private (Coach)
 const shortlistPlayer = async (req, res, next) => {
   try {
-    const { playerId, notes = 'High potential prospect' } = req.body;
+    const { playerId, athlete_id, note, notes = 'High potential prospect' } = req.body;
+    const targetPlayerId = playerId || athlete_id;
+    const finalNote = note || notes;
 
-    if (!playerId) {
+    if (!targetPlayerId) {
       return res.status(400).json({
         status: 'fail',
-        message: 'Player ID is required for shortlisting.',
+        message: 'Player ID (athlete_id) is required for shortlisting.',
       });
     }
 
+    const Shortlist = require('../models/Shortlist');
     let coachDoc;
+    const createdAtNow = new Date();
+    const shortlistIdCode = `SL-${Math.floor(100000 + Math.random() * 900000)}`;
+
     if (mongoose.connection.readyState === 1) {
       coachDoc = await CoachProfile.findOne({ user: req.user._id });
       if (!coachDoc) {
-        coachDoc = await CoachProfile.create({ user: req.user._id });
+        coachDoc = await CoachProfile.create({
+          user: req.user._id,
+          user_id: req.user._id,
+          coach_name: req.user.name || 'Coach Ranjan Patil',
+        });
       }
 
       const alreadyShortlisted = coachDoc.shortlistedPlayers.some(
-        (sp) => sp.player.toString() === playerId
+        (sp) => sp.player && sp.player.toString() === targetPlayerId
       );
 
       if (!alreadyShortlisted) {
-        coachDoc.shortlistedPlayers.push({ player: playerId, notes });
+        coachDoc.shortlistedPlayers.push({
+          player: targetPlayerId,
+          athlete_id: targetPlayerId,
+          notes: finalNote,
+          note: finalNote,
+          addedAt: createdAtNow,
+          created_at: createdAtNow,
+        });
         await coachDoc.save();
+
+        try {
+          await Shortlist.create({
+            shortlist_id: shortlistIdCode,
+            coach_id: coachDoc._id,
+            athlete_id: targetPlayerId,
+            note: finalNote,
+            created_at: createdAtNow,
+          });
+        } catch (slErr) {
+          // Non-blocking if non-ObjectId demo ID passed
+        }
       }
     } else {
       coachDoc =
         embeddedStore.coachProfiles.find((c) => c.user === req.user._id) ||
         embeddedStore.coachProfiles[0];
-      coachDoc.shortlistedPlayers.push({ player: playerId, notes, addedAt: new Date() });
+
+      const matchedPlayer = embeddedStore.playerProfiles.find(
+        (p) => p._id === targetPlayerId || p.playerId === targetPlayerId || p.athlete_id === targetPlayerId
+      );
+      const userObj = matchedPlayer
+        ? embeddedStore.users.find((u) => u._id === matchedPlayer.user)
+        : null;
+
+      const slEntry = {
+        _id: `sl_${Date.now()}`,
+        shortlist_id: shortlistIdCode,
+        coach_id: coachDoc.coach_id || coachDoc.coachId,
+        athlete_id: matchedPlayer ? matchedPlayer.athlete_id || matchedPlayer.playerId : targetPlayerId,
+        player: matchedPlayer ? { ...matchedPlayer, user: userObj } : targetPlayerId,
+        notes: finalNote,
+        note: finalNote,
+        addedAt: createdAtNow,
+        created_at: createdAtNow,
+      };
+      coachDoc.shortlistedPlayers.unshift(slEntry);
+      embeddedStore.shortlists.unshift({
+        shortlist_id: shortlistIdCode,
+        coach_id: slEntry.coach_id,
+        athlete_id: slEntry.athlete_id,
+        note: finalNote,
+        created_at: createdAtNow,
+      });
     }
 
     res.status(200).json({
@@ -155,7 +210,7 @@ const shortlistPlayer = async (req, res, next) => {
   }
 };
 
-// @desc    Get Coach Shortlist
+// @desc    Get Coach Shortlist (ER Entity: SHORTLIST)
 // @route   GET /api/scouts/shortlist
 // @access  Private (Coach)
 const getShortlist = async (req, res, next) => {
@@ -172,7 +227,16 @@ const getShortlist = async (req, res, next) => {
       const coachDoc =
         embeddedStore.coachProfiles.find((c) => c.user === req.user._id) ||
         embeddedStore.coachProfiles[0];
-      shortlist = coachDoc ? coachDoc.shortlistedPlayers : [];
+      shortlist = (coachDoc ? coachDoc.shortlistedPlayers : []).map((item) => {
+        if (item.player && typeof item.player === 'object' && !item.player.user) {
+          const u = embeddedStore.users.find((usr) => usr._id === item.player.user) || {
+            name: 'Sunil Chhetri Jr',
+            location: { city: 'Bengaluru', state: 'Karnataka' },
+          };
+          return { ...item, player: { ...item.player, user: u } };
+        }
+        return item;
+      });
     }
 
     res.status(200).json({

@@ -79,6 +79,40 @@ const updatePlayerProfile = async (req, res, next) => {
       profilePhotoUrl,
     } = req.body;
 
+    // Height and Weight Validation
+    let parsedHeight = undefined;
+    let parsedWeight = undefined;
+
+    if (heightCm !== undefined) {
+      if (heightCm === null || String(heightCm).trim() === '') {
+        parsedHeight = null;
+      } else {
+        const h = Number(heightCm);
+        if (isNaN(h) || h < 80 || h > 250) {
+          return res.status(400).json({
+            status: 'fail',
+            message: 'Height must be a valid number between 80 cm and 250 cm.',
+          });
+        }
+        parsedHeight = h;
+      }
+    }
+
+    if (weightKg !== undefined) {
+      if (weightKg === null || String(weightKg).trim() === '') {
+        parsedWeight = null;
+      } else {
+        const w = Number(weightKg);
+        if (isNaN(w) || w < 25 || w > 200) {
+          return res.status(400).json({
+            status: 'fail',
+            message: 'Weight must be a valid number between 25 kg and 200 kg.',
+          });
+        }
+        parsedWeight = w;
+      }
+    }
+
     let updatedUser;
     let updatedProfile;
 
@@ -101,10 +135,10 @@ const updatePlayerProfile = async (req, res, next) => {
         { user: req.user._id },
         {
           ...(age && { age: Number(age) }),
-          ...(position && { position }),
+          ...(position && { position, playing_position: position }),
           ...(preferredFoot && { preferredFoot }),
-          ...(heightCm && { heightCm: Number(heightCm) }),
-          ...(weightKg && { weightKg: Number(weightKg) }),
+          ...(parsedHeight !== undefined && { heightCm: parsedHeight }),
+          ...(parsedWeight !== undefined && { weightKg: parsedWeight }),
           ...(clubOrTeam && { clubOrTeam }),
           ...(profilePhotoUrl && { profilePhotoUrl }),
         },
@@ -121,10 +155,13 @@ const updatePlayerProfile = async (req, res, next) => {
         embeddedStore.playerProfiles[0];
 
       if (age) updatedProfile.age = Number(age);
-      if (position) updatedProfile.position = position;
+      if (position) {
+        updatedProfile.position = position;
+        updatedProfile.playing_position = position;
+      }
       if (preferredFoot) updatedProfile.preferredFoot = preferredFoot;
-      if (heightCm) updatedProfile.heightCm = Number(heightCm);
-      if (weightKg) updatedProfile.weightKg = Number(weightKg);
+      if (parsedHeight !== undefined) updatedProfile.heightCm = parsedHeight;
+      if (parsedWeight !== undefined) updatedProfile.weightKg = parsedWeight;
       if (clubOrTeam) updatedProfile.clubOrTeam = clubOrTeam;
     }
 

@@ -8,9 +8,11 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_API_URL } from '../../services/apiConfig';
+import { COLORS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 
 const ROLE_FILTERS = ['All', 'player', 'coach', 'admin'];
 
@@ -19,6 +21,9 @@ export default function AdminDashboardView({
   userToken,
   navigation,
 }) {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 860;
+
   const [activeTab, setActiveTab] = useState('users'); // 'users', 'players', 'coaches', 'assessments'
   const [stats, setStats] = useState({
     totalRegisteredPlayers: 18,
@@ -26,7 +31,7 @@ export default function AdminDashboardView({
     totalAIAssessmentsCompleted: 42,
     nationalAvgOverallScore: 78.4,
     activeAIModel: 'YOLOv8 + MediaPipe Pose 33-Landmarks',
-    serverStatus: 'Operational 🟢',
+    serverStatus: 'Operational',
   });
 
   const [users, setUsers] = useState([]);
@@ -37,6 +42,7 @@ export default function AdminDashboardView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState('All');
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -121,17 +127,14 @@ export default function AdminDashboardView({
 
   const handleToggleStatus = async (user) => {
     try {
-      const response = await fetch(`${BASE_API_URL}/admin/users/${user._id}/status`, {
+      await fetch(`${BASE_API_URL}/admin/users/${user._id}/status`, {
         method: 'PUT',
         headers: { ...(userToken && { Authorization: `Bearer ${userToken}` }) },
       });
-      const resData = await response.json();
-      if (response.ok) {
-        setUsers((prev) =>
-          prev.map((u) => (u._id === user._id ? { ...u, isActive: !u.isActive } : u))
-        );
-        Alert.alert('Status Updated', `User account is now ${!user.isActive ? 'Active' : 'Deactivated'}.`);
-      }
+      setUsers((prev) =>
+        prev.map((u) => (u._id === user._id ? { ...u, isActive: !u.isActive } : u))
+      );
+      Alert.alert('Status Updated', `User account is now ${!user.isActive ? 'Active' : 'Deactivated'}.`);
     } catch (err) {
       setUsers((prev) =>
         prev.map((u) => (u._id === user._id ? { ...u, isActive: !u.isActive } : u))
@@ -142,7 +145,7 @@ export default function AdminDashboardView({
   const handleDeleteUser = async (user) => {
     Alert.alert(
       'Confirm Deletion',
-      `Are you sure you want to permanently remove user '${user.name}'?`,
+      `Are you sure you want to remove user account '${user.name}'?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -155,7 +158,6 @@ export default function AdminDashboardView({
                 headers: { ...(userToken && { Authorization: `Bearer ${userToken}` }) },
               });
               setUsers((prev) => prev.filter((u) => u._id !== user._id));
-              Alert.alert('Deleted', 'User successfully removed.');
             } catch (err) {
               setUsers((prev) => prev.filter((u) => u._id !== user._id));
             }
@@ -165,9 +167,45 @@ export default function AdminDashboardView({
     );
   };
 
+  const handleExportUsersExcel = async () => {
+    try {
+      setExporting(true);
+      const response = await fetch(`${BASE_API_URL}/admin/export/users`, {
+        method: 'GET',
+        headers: {
+          ...(userToken && { Authorization: `Bearer ${userToken}` }),
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to export users to Excel');
+      }
+
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `scoutx_users_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        Alert.alert('Excel Export Downloaded', 'Users database has been exported to scoutx_users.xlsx.');
+      } else {
+        Alert.alert('Export Generated', 'Server has generated the Excel file successfully.');
+      }
+    } catch (err) {
+      Alert.alert('Export Failed', err.message || 'Unable to download Excel spreadsheet.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
-      !searchQuery ||
       u.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesRole = selectedRole === 'All' || u.role === selectedRole;
@@ -175,548 +213,669 @@ export default function AdminDashboardView({
   });
 
   return (
-    <View style={styles.container}>
-      {/* 1. Admin System Header & KPI Platform Health */}
-      <View style={styles.adminHero}>
-        <View style={styles.adminHeroRow}>
-          <View style={styles.adminAvatar}>
-            <Ionicons name="settings" size={26} color="#EC4899" />
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+      {/* Platform KPI Grid */}
+      <View style={styles.kpiSummaryCard}>
+        <View style={styles.kpiHeaderRow}>
+          <View>
+            <Text style={styles.adminTitle}>Platform Operations Dashboard</Text>
+            <Text style={styles.adminSubtitle}>
+              Logged in as {userName || 'Administrator'} • Autonomous AI Engine: {stats.activeAIModel}
+            </Text>
           </View>
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.adminName}>{userName}</Text>
-              <View style={styles.adminTag}>
-                <Text style={styles.adminTagText}>SUPER ADMIN</Text>
-              </View>
-            </View>
-            <Text style={styles.adminSub}>
-              ScoutX Platform Management & AI Computer Vision Monitor
-            </Text>
-            <Text style={styles.adminStatus}>
-              🟢 Core Engine: {stats.activeAIModel}
-            </Text>
+          <View style={styles.serverStatusBadge}>
+            <View style={styles.statusDot} />
+            <Text style={styles.serverStatusText}>System Status: {stats.serverStatus}</Text>
           </View>
         </View>
 
-        {/* Platform KPI Grid */}
-        <View style={styles.kpiGrid}>
-          <View style={styles.kpiCard}>
-            <Text style={styles.kpiNumber}>{stats.totalRegisteredPlayers}</Text>
-            <Text style={styles.kpiLabel}>TOTAL PLAYERS</Text>
+        <View style={[styles.kpiGrid, isDesktop && styles.kpiGridDesktop]}>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiVal}>{stats.totalRegisteredPlayers || players.length}</Text>
+            <Text style={styles.kpiLbl}>REGISTERED ATHLETES</Text>
           </View>
-          <View style={styles.kpiCard}>
-            <Text style={[styles.kpiNumber, { color: '#38BDF8' }]}>{stats.totalVerifiedCoaches}</Text>
-            <Text style={styles.kpiLabel}>SCOUTS & COACHES</Text>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiVal}>{stats.totalVerifiedCoaches || coaches.length}</Text>
+            <Text style={styles.kpiLbl}>LICENSED COACHES</Text>
           </View>
-          <View style={styles.kpiCard}>
-            <Text style={[styles.kpiNumber, { color: '#F59E0B' }]}>{stats.totalAIAssessmentsCompleted}</Text>
-            <Text style={styles.kpiLabel}>AI ASSESSMENTS</Text>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiVal}>{stats.totalAIAssessmentsCompleted || assessments.length}</Text>
+            <Text style={styles.kpiLbl}>COMPLETED ASSESSMENTS</Text>
           </View>
-          <View style={styles.kpiCard}>
-            <Text style={[styles.kpiNumber, { color: '#EC4899' }]}>{stats.nationalAvgOverallScore}</Text>
-            <Text style={styles.kpiLabel}>NATIONAL AVG</Text>
+          <View style={styles.kpiBox}>
+            <Text style={styles.kpiVal}>{stats.nationalAvgOverallScore || 78.4}</Text>
+            <Text style={styles.kpiLbl}>NAT. AVG SCORE</Text>
           </View>
         </View>
       </View>
 
-      {/* 2. 4-Way Admin Tab Navigator */}
-      <View style={styles.tabNav}>
+      {/* Tabs */}
+      <View style={styles.tabsContainer}>
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'users' && styles.tabBtnActive]}
+          style={[styles.tabButton, activeTab === 'users' && styles.tabButtonActive]}
           onPress={() => setActiveTab('users')}
         >
-          <Ionicons name="people" size={14} color={activeTab === 'users' ? '#FFFFFF' : '#94A3B8'} />
-          <Text style={[styles.tabBtnText, activeTab === 'users' && styles.tabBtnTextActive]}>
-            Users ({users.length})
+          <Ionicons name="people" size={16} color={activeTab === 'users' ? COLORS.primary : COLORS.textSecondary} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabButtonText, activeTab === 'users' && styles.tabButtonTextActive]}>
+            User Accounts ({users.length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'players' && styles.tabBtnActive]}
+          style={[styles.tabButton, activeTab === 'players' && styles.tabButtonActive]}
           onPress={() => setActiveTab('players')}
         >
-          <Ionicons name="football" size={14} color={activeTab === 'players' ? '#FFFFFF' : '#94A3B8'} />
-          <Text style={[styles.tabBtnText, activeTab === 'players' && styles.tabBtnTextActive]}>
-            Players
+          <Ionicons name="football" size={16} color={activeTab === 'players' ? COLORS.primary : COLORS.textSecondary} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabButtonText, activeTab === 'players' && styles.tabButtonTextActive]}>
+            Athletes ({players.length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'coaches' && styles.tabBtnActive]}
+          style={[styles.tabButton, activeTab === 'coaches' && styles.tabButtonActive]}
           onPress={() => setActiveTab('coaches')}
         >
-          <Ionicons name="shield-checkmark" size={14} color={activeTab === 'coaches' ? '#FFFFFF' : '#94A3B8'} />
-          <Text style={[styles.tabBtnText, activeTab === 'coaches' && styles.tabBtnTextActive]}>
-            Coaches
+          <Ionicons name="briefcase" size={16} color={activeTab === 'coaches' ? COLORS.primary : COLORS.textSecondary} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabButtonText, activeTab === 'coaches' && styles.tabButtonTextActive]}>
+            Coaches ({coaches.length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'assessments' && styles.tabBtnActive]}
+          style={[styles.tabButton, activeTab === 'assessments' && styles.tabButtonActive]}
           onPress={() => setActiveTab('assessments')}
         >
-          <Ionicons name="analytics" size={14} color={activeTab === 'assessments' ? '#FFFFFF' : '#94A3B8'} />
-          <Text style={[styles.tabBtnText, activeTab === 'assessments' && styles.tabBtnTextActive]}>
-            AI Logs
+          <Ionicons name="analytics" size={16} color={activeTab === 'assessments' ? COLORS.primary : COLORS.textSecondary} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabButtonText, activeTab === 'assessments' && styles.tabButtonTextActive]}>
+            Assessment Engine ({assessments.length})
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* ======================================================== */}
-      {/* TAB 1: USER MANAGEMENT */}
-      {/* ======================================================== */}
+      {/* TAB 1: USER ACCOUNTS */}
       {activeTab === 'users' && (
-        <>
+        <View style={styles.tabContent}>
+          {/* Filter Bar */}
           <View style={styles.filterCard}>
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
+            <View style={styles.searchRow}>
+              <Ionicons name="search-outline" size={18} color={COLORS.textMuted} style={{ marginRight: 8 }} />
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search user by name or email..."
-                placeholderTextColor="#64748B"
+                placeholderTextColor={COLORS.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
-              {searchQuery ? (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Ionicons name="close-circle" size={18} color="#94A3B8" />
-                </TouchableOpacity>
-              ) : null}
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-              {ROLE_FILTERS.map((r) => (
-                <TouchableOpacity
-                  key={r}
-                  style={[styles.roleChip, selectedRole === r && styles.roleChipActive]}
-                  onPress={() => setSelectedRole(r)}
-                >
-                  <Text style={[styles.roleChipText, selectedRole === r && styles.roleChipTextActive]}>
-                    {r === 'All' ? 'All Roles' : `${r.toUpperCase()}S`}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.filterActionsRow}>
+              <View style={styles.roleFilterRow}>
+                <Text style={styles.filterLabel}>Role:</Text>
+                {ROLE_FILTERS.map((r) => (
+                  <TouchableOpacity
+                    key={r}
+                    style={[styles.rolePill, selectedRole === r && styles.rolePillActive]}
+                    onPress={() => setSelectedRole(r)}
+                  >
+                    <Text style={[styles.rolePillText, selectedRole === r && styles.rolePillTextActive]}>
+                      {r.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.exportExcelButton, exporting && styles.exportExcelButtonDisabled]}
+                onPress={handleExportUsersExcel}
+                disabled={exporting}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Export user accounts to Excel"
+              >
+                {exporting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="download-outline" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.exportExcelButtonText}>Export to Excel (.xlsx)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
 
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 10 }}>
-            <Text style={styles.sectionHeader}>Platform User Directory ({filteredUsers.length})</Text>
-            {loading && <ActivityIndicator size="small" color="#10B981" />}
-          </View>
-
-          {filteredUsers.map((u) => {
-            const isActive = u.isActive !== false;
-            const roleColor =
-              u.role === 'admin' ? '#EC4899' : u.role === 'coach' ? '#38BDF8' : '#10B981';
-
-            return (
-              <View key={u._id} style={styles.userCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <View style={[styles.roleDot, { backgroundColor: roleColor }]} />
-                  <View style={{ flex: 1, marginLeft: 8 }}>
-                    <Text style={styles.userNameText}>{u.name}</Text>
+          {loading ? (
+            <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 32 }} />
+          ) : filteredUsers.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No Users Match Current Filters</Text>
+            </View>
+          ) : (
+            <View style={styles.usersList}>
+              {filteredUsers.map((u) => (
+                <View key={u._id} style={styles.userRowCard}>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.userNameRow}>
+                      <Text style={styles.userNameText}>{u.name}</Text>
+                      <View style={[styles.userRolePill, { backgroundColor: u.role === 'admin' ? '#FEE2E2' : u.role === 'coach' ? '#E0F2FE' : COLORS.primaryLight }]}>
+                        <Text style={[styles.userRoleText, { color: u.role === 'admin' ? COLORS.accentRed : u.role === 'coach' ? '#0369A1' : COLORS.primaryDark }]}>
+                          {u.role.toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: u.isActive !== false ? COLORS.primaryLight : '#FEE2E2' }]}>
+                        <Text style={[styles.statusText, { color: u.isActive !== false ? COLORS.primaryDark : COLORS.accentRed }]}>
+                          {u.isActive !== false ? 'Active' : 'Inactive'}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={styles.userEmailText}>{u.email}</Text>
-                  </View>
-                  <View style={[styles.roleBadge, { backgroundColor: `${roleColor}20` }]}>
-                    <Text style={[styles.roleBadgeText, { color: roleColor }]}>{u.role.toUpperCase()}</Text>
-                  </View>
-                </View>
-
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View
-                      style={[
-                        styles.statusDot,
-                        { backgroundColor: isActive ? '#10B981' : '#EF4444' },
-                      ]}
-                    />
-                    <Text style={styles.statusText}>{isActive ? 'Active Account' : 'Deactivated'}</Text>
+                    <Text style={styles.userLocationText}>
+                      Location: {u.location?.city || 'Pune'}, {u.location?.state || 'Maharashtra'}
+                    </Text>
                   </View>
 
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={styles.userActions}>
                     <TouchableOpacity
-                      style={[
-                        styles.statusToggleBtn,
-                        { backgroundColor: isActive ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)' },
-                      ]}
+                      style={styles.toggleBtn}
                       onPress={() => handleToggleStatus(u)}
                     >
-                      <Text
-                        style={[
-                          styles.statusToggleBtnText,
-                          { color: isActive ? '#EF4444' : '#10B981' },
-                        ]}
-                      >
-                        {isActive ? 'Deactivate' : 'Activate'}
+                      <Text style={styles.toggleBtnText}>
+                        {u.isActive !== false ? 'Deactivate' : 'Activate'}
                       </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={styles.deleteUserBtn}
+                      style={styles.deleteBtn}
                       onPress={() => handleDeleteUser(u)}
                     >
-                      <Ionicons name="trash-outline" size={15} color="#EF4444" />
+                      <Ionicons name="trash-outline" size={15} color={COLORS.accentRed} />
                     </TouchableOpacity>
                   </View>
                 </View>
-              </View>
-            );
-          })}
-        </>
+              ))}
+            </View>
+          )}
+        </View>
       )}
 
-      {/* ======================================================== */}
-      {/* TAB 2: PLAYER RECORDS */}
-      {/* ======================================================== */}
+      {/* TAB 2: ATHLETES */}
       {activeTab === 'players' && (
-        <>
-          <Text style={styles.sectionHeader}>⚽ Registered Player Profiles ({players.length})</Text>
-          {players.map((p, idx) => (
-            <View key={p._id || idx} style={styles.recordCard}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <View>
-                  <Text style={styles.recordName}>{p.user?.name || 'Football Athlete'}</Text>
-                  <Text style={styles.recordSub}>
-                    ID: {p.playerId} • {p.position} • {p.preferredFoot} Foot • {p.clubOrTeam || 'Academy'}
+        <View style={styles.tabContent}>
+          <Text style={styles.sectionHeader}>REGISTERED ATHLETE PROFILES ({players.length})</Text>
+          <View style={styles.playersList}>
+            {players.map((p) => (
+              <View key={p._id || p.athlete_id} style={styles.profileCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.profileCardTitle}>{p.user?.name || p.name || 'Athlete'}</Text>
+                  <Text style={styles.profileCardSub}>{p.clubOrTeam} • {p.city}</Text>
+                  <Text style={styles.profileCardMeta}>
+                    Position: {p.position || p.playing_position} • Age: {p.age} • Foot: {p.preferredFoot}
                   </Text>
                 </View>
-                <View style={styles.recordScoreBox}>
-                  <Text style={styles.recordScoreNum}>{p.overallScore || 85}</Text>
-                  <Text style={styles.recordScoreLbl}>SCORE</Text>
+                <View style={styles.scorePill}>
+                  <Text style={styles.scorePillVal}>{Math.round(p.overallScore || 85)}</Text>
+                  <Text style={styles.scorePillLbl}>SCORE</Text>
                 </View>
               </View>
-            </View>
-          ))}
-        </>
+            ))}
+          </View>
+        </View>
       )}
 
-      {/* ======================================================== */}
-      {/* TAB 3: COACH REGISTRY */}
-      {/* ======================================================== */}
+      {/* TAB 3: COACHES */}
       {activeTab === 'coaches' && (
-        <>
-          <Text style={styles.sectionHeader}>🛡️ Verified Coach & Scout Registry ({coaches.length})</Text>
-          {coaches.map((c, idx) => (
-            <View key={c._id || idx} style={styles.recordCard}>
-              <Text style={styles.recordName}>{c.user?.name || 'Coach Scout'}</Text>
-              <Text style={styles.recordSub}>
-                ID: {c.coachId} • {c.clubOrAcademy || 'Youth Academy'} • {c.licenseLevel || 'AFC A'} • {c.experienceYears || 5} Yrs Exp
-              </Text>
-            </View>
-          ))}
-        </>
-      )}
-
-      {/* ======================================================== */}
-      {/* TAB 4: AI ASSESSMENT LOGS */}
-      {/* ======================================================== */}
-      {activeTab === 'assessments' && (
-        <>
-          <Text style={styles.sectionHeader}>📊 Live Computer Vision Assessment Audit ({assessments.length})</Text>
-          {assessments.map((a, idx) => (
-            <View key={a._id || idx} style={styles.logCard}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="analytics" size={18} color="#10B981" />
-                  <View>
-                    <Text style={styles.logTitle}>
-                      {a.drillType?.toUpperCase()} DRILL • Score: {a.overallScore}
-                    </Text>
-                    <Text style={styles.logSub}>
-                      Athlete: {a.player?.user?.name || 'Player'} ({a.player?.playerId || 'FB-882104'})
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.confidenceBadge}>
-                  <Text style={styles.confidenceText}>
-                    {Math.round((a.aiConfidenceScore || 0.98) * 100)}% AI Conf
+        <View style={styles.tabContent}>
+          <Text style={styles.sectionHeader}>VERIFIED COACHES & SCOUTS ({coaches.length})</Text>
+          <View style={styles.coachesList}>
+            {coaches.map((c) => (
+              <View key={c._id || c.coach_id} style={styles.profileCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.profileCardTitle}>{c.user?.name || c.name || c.coach_name || 'Coach'}</Text>
+                  <Text style={styles.profileCardSub}>{c.clubOrAcademy || 'Academy'}</Text>
+                  <Text style={styles.profileCardMeta}>
+                    License: {c.licenseLevel || 'AFC A'} • Experience: {c.experienceYears || 5} years
                   </Text>
                 </View>
+                <View style={styles.verifiedCoachBadge}>
+                  <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} style={{ marginRight: 4 }} />
+                  <Text style={styles.verifiedCoachText}>Verified</Text>
+                </View>
               </View>
-            </View>
-          ))}
-        </>
+            ))}
+          </View>
+        </View>
       )}
-    </View>
+
+      {/* TAB 4: ASSESSMENTS */}
+      {activeTab === 'assessments' && (
+        <View style={styles.tabContent}>
+          <Text style={styles.sectionHeader}>EVALUATION AUDIT LOG ({assessments.length})</Text>
+          <View style={styles.assessmentsList}>
+            {assessments.map((asm) => (
+              <View key={asm._id || asm.assessment_id} style={styles.asmAuditCard}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.asmAuditTitle}>
+                    {(asm.drill_type || asm.drillType || 'Drill').toUpperCase()}
+                  </Text>
+                  <Text style={styles.asmAuditId}>
+                    ID: {asm.assessment_id || asm._id} • Athlete: {asm.athlete_id || 'Athlete'}
+                  </Text>
+                  <Text style={styles.asmAuditDate}>
+                    Status: {asm.status} • Recorded: {new Date(asm.createdAt || Date.now()).toLocaleDateString()}
+                  </Text>
+                </View>
+                <View style={styles.asmAuditScore}>
+                  <Text style={styles.asmAuditScoreVal}>{Math.round(asm.overallScore || 85)}</Text>
+                  <Text style={styles.asmAuditScoreLbl}>SCORE</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.backgroundSecondary,
   },
-  adminHero: {
-    backgroundColor: '#1E293B',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
+  contentContainer: {
+    padding: SPACING.md,
+    maxWidth: 1240,
+    width: '100%',
+    marginHorizontal: 'auto',
+  },
+  kpiSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.border,
+    padding: SPACING.lg,
+    marginBottom: 16,
+    ...SHADOWS.card,
   },
-  adminHeroRow: {
+  kpiHeaderRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
-  adminAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(236, 72, 153, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#EC4899',
-  },
-  adminName: {
-    color: '#F8FAFC',
-    fontSize: 18,
+  adminTitle: {
+    fontSize: 20,
     fontWeight: '800',
+    color: COLORS.textPrimary,
   },
-  adminTag: {
-    backgroundColor: 'rgba(236, 72, 153, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  adminTagText: {
-    color: '#EC4899',
-    fontSize: 9,
-    fontWeight: '900',
-  },
-  adminSub: {
-    color: '#94A3B8',
+  adminSubtitle: {
     fontSize: 12,
+    color: COLORS.textSecondary,
     marginTop: 2,
   },
-  adminStatus: {
-    color: '#10B981',
+  serverStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: RADIUS.xs,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primary,
+    marginRight: 6,
+  },
+  serverStatusText: {
     fontSize: 11,
     fontWeight: '700',
-    marginTop: 3,
+    color: COLORS.primaryDark,
   },
   kpiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexDirection: 'column',
+    gap: 12,
   },
-  kpiCard: {
+  kpiGridDesktop: {
+    flexDirection: 'row',
+  },
+  kpiBox: {
     flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
-    padding: 10,
+    backgroundColor: COLORS.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    padding: 14,
     alignItems: 'center',
   },
-  kpiNumber: {
-    color: '#10B981',
-    fontSize: 20,
+  kpiVal: {
+    fontSize: 24,
     fontWeight: '900',
+    color: COLORS.textPrimary,
   },
-  kpiLabel: {
-    color: '#64748B',
+  kpiLbl: {
     fontSize: 9,
-    fontWeight: '800',
-    marginTop: 2,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    marginTop: 3,
   },
-  tabNav: {
+  tabsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 4,
+    gap: 8,
     marginBottom: 16,
-    gap: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingBottom: 8,
   },
-  tabBtn: {
-    flex: 1,
+  tabButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    borderRadius: 10,
-    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: RADIUS.sm,
   },
-  tabBtnActive: {
-    backgroundColor: '#EC4899',
+  tabButtonActive: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  tabBtnText: {
-    color: '#94A3B8',
-    fontSize: 11,
+  tabButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  tabButtonTextActive: {
+    color: COLORS.textPrimary,
     fontWeight: '700',
   },
-  tabBtnTextActive: {
-    color: '#FFFFFF',
+  tabContent: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    fontSize: 11,
     fontWeight: '800',
+    color: COLORS.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
   filterCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.border,
+    padding: 14,
+    marginBottom: 16,
   },
-  searchBar: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 10,
   },
   searchInput: {
     flex: 1,
-    color: '#FFFFFF',
     fontSize: 13,
+    color: COLORS.textPrimary,
   },
-  roleChip: {
-    backgroundColor: '#0F172A',
+  roleFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  rolePill: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.backgroundSecondary,
   },
-  roleChipActive: {
-    backgroundColor: '#EC4899',
-    borderColor: '#EC4899',
+  rolePillActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
   },
-  roleChipText: {
-    color: '#94A3B8',
+  rolePillText: {
     fontSize: 11,
     fontWeight: '600',
+    color: COLORS.textSecondary,
   },
-  roleChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  sectionHeader: {
-    color: '#F8FAFC',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  userCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  roleDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  userNameText: {
-    color: '#F8FAFC',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  userEmailText: {
-    color: '#94A3B8',
-    fontSize: 11,
-  },
-  roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  roleBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    color: '#94A3B8',
-    fontSize: 11,
-  },
-  statusToggleBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  statusToggleBtnText: {
-    fontSize: 11,
+  rolePillTextActive: {
+    color: COLORS.primaryDark,
     fontWeight: '700',
   },
-  deleteUserBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    justifyContent: 'center',
+  filterActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  exportExcelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: RADIUS.sm,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  exportExcelButtonDisabled: {
+    opacity: 0.65,
+  },
+  exportExcelButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 32,
     alignItems: 'center',
   },
-  recordCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
+  emptyTitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
   },
-  recordName: {
-    color: '#F8FAFC',
+  usersList: {
+    gap: 10,
+  },
+  userRowCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  userNameText: {
     fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  userRolePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: RADIUS.xs,
+  },
+  userRoleText: {
+    fontSize: 9,
     fontWeight: '800',
   },
-  recordSub: {
-    color: '#94A3B8',
+  statusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: RADIUS.xs,
+  },
+  statusText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  userEmailText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginVertical: 2,
+  },
+  userLocationText: {
     fontSize: 11,
-    marginTop: 2,
+    color: COLORS.textMuted,
   },
-  recordScoreBox: {
+  userActions: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    gap: 8,
   },
-  recordScoreNum: {
-    color: '#10B981',
-    fontSize: 16,
+  toggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: RADIUS.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  toggleBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  deleteBtn: {
+    padding: 6,
+    borderRadius: RADIUS.xs,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+  },
+  playersList: {
+    gap: 10,
+  },
+  coachesList: {
+    gap: 10,
+  },
+  assessmentsList: {
+    gap: 10,
+  },
+  profileCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  profileCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  profileCardSub: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginVertical: 2,
+  },
+  profileCardMeta: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  scorePill: {
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: RADIUS.sm,
+  },
+  scorePillVal: {
+    fontSize: 18,
     fontWeight: '900',
+    color: COLORS.primaryDark,
   },
-  recordScoreLbl: {
-    color: '#6EE7B7',
+  scorePillLbl: {
     fontSize: 8,
     fontWeight: '800',
+    color: COLORS.primaryDark,
   },
-  logCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  logTitle: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  logSub: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  confidenceBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+  verifiedCoachBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: RADIUS.xs,
   },
-  confidenceText: {
-    color: '#10B981',
-    fontSize: 10,
+  verifiedCoachText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primaryDark,
+  },
+  asmAuditCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  asmAuditTitle: {
+    fontSize: 14,
     fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  asmAuditId: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    marginVertical: 2,
+  },
+  asmAuditDate: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  asmAuditScore: {
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: RADIUS.sm,
+  },
+  asmAuditScoreVal: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: COLORS.primaryDark,
+  },
+  asmAuditScoreLbl: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: COLORS.primaryDark,
   },
 });

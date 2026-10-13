@@ -2,6 +2,7 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Import Screens
+import LandingScreen from '../screens/LandingScreen';
 import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -14,13 +15,14 @@ const Stack = createNativeStackNavigator();
 export default function AppNavigator() {
   return (
     <Stack.Navigator
-      initialRouteName="Splash"
+      initialRouteName="Landing"
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
-        contentStyle: { backgroundColor: '#0B0F19' },
+        contentStyle: { backgroundColor: '#FFFFFF' },
       }}
     >
+      <Stack.Screen name="Landing" component={LandingScreen} />
       <Stack.Screen name="Splash" component={SplashScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />

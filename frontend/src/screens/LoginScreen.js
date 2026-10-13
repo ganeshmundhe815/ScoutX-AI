@@ -10,23 +10,35 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BASE_API_URL } from '../services/apiConfig';
+import FootballImage from '../components/FootballImage';
+import SocialAuthModal from '../components/SocialAuthModal';
+import { FOOTBALL_MEDIA } from '../constants/footballMedia';
+import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
 export default function LoginScreen({ navigation }) {
-  const [role, setRole] = useState('player');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 900;
+
+  const [email, setEmail] = useState('player@scoutx.com');
+  const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [socialModalVisible, setSocialModalVisible] = useState(false);
+  const [socialProvider, setSocialProvider] = useState('google');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const saveSessionAndNavigate = (sessionData) => {
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
       try {
         localStorage.setItem('scoutx_user_session', JSON.stringify(sessionData));
+        if (sessionData.userToken) {
+          localStorage.setItem('scoutx_token', sessionData.userToken);
+        }
       } catch (e) {
         console.warn('[Session Save Error]:', e);
       }
@@ -34,9 +46,17 @@ export default function LoginScreen({ navigation }) {
     navigation.replace('Home', sessionData);
   };
 
+  const openSocialAuth = (provider) => {
+    setErrorMessage('');
+    setSocialProvider(provider);
+    setSocialModalVisible(true);
+  };
+
   const handleLogin = async () => {
+    setErrorMessage('');
+
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing Fields', 'Please enter your email and password.');
+      setErrorMessage('Please enter both your email address and password.');
       return;
     }
 
@@ -50,351 +70,597 @@ export default function LoginScreen({ navigation }) {
         },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
-          password,
+          password: password,
         }),
       });
 
       const data = await response.json();
 
       if (response.ok && data.status === 'success') {
-        const verifiedRole = (data.data?.role || data.user?.role || (email.toLowerCase().includes('admin') ? 'admin' : email.toLowerCase().includes('coach') ? 'coach' : role)).toLowerCase();
+        const verifiedRole = (
+          data.data?.role ||
+          data.user?.role ||
+          'player'
+        ).toLowerCase();
+
         const sessionData = {
           userRole: verifiedRole,
-          userEmail: data.data?.email || data.user?.email || email,
-          userName: data.data?.name || data.user?.name || (verifiedRole === 'coach' ? 'Coach Ranjan Patil' : verifiedRole === 'admin' ? 'ScoutX Admin' : 'Sunil Chhetri Jr'),
+          userId: data.data?._id || data.data?.user_id || data.user?.id,
+          userEmail: data.data?.email || data.user?.email || email.trim().toLowerCase(),
+          userName: data.data?.name || data.user?.name || 'Football User',
           userToken: data.data?.token || data.token,
           userLocation: data.data?.location || { state: 'Karnataka', city: 'Bengaluru' },
           playerProfile: data.data?.profile,
         };
+
         saveSessionAndNavigate(sessionData);
       } else {
-        const offlineRole = (email.toLowerCase().includes('admin') ? 'admin' : email.toLowerCase().includes('coach') ? 'coach' : role).toLowerCase();
-        const fallbackSession = {
-          userRole: offlineRole,
-          userEmail: email,
-          userName: offlineRole === 'coach' ? 'Coach Ranjan Patil' : offlineRole === 'admin' ? 'ScoutX Admin' : email.split('@')[0],
-          userLocation: { state: 'Maharashtra', city: 'Pune' },
-        };
-        saveSessionAndNavigate(fallbackSession);
+        // Real validation error from server (401, 400, etc.)
+        setErrorMessage(data.message || 'Invalid email or password. Please try again.');
       }
     } catch (error) {
-      console.warn(`[Login Notice]: ${error.message}. Running in offline session.`);
-      const offlineRole = (email.toLowerCase().includes('admin') ? 'admin' : email.toLowerCase().includes('coach') ? 'coach' : role).toLowerCase();
-      const offlineSession = {
-        userRole: offlineRole,
-        userEmail: email,
-        userName: offlineRole === 'coach' ? 'Coach Ranjan Patil' : offlineRole === 'admin' ? 'ScoutX Admin' : email.split('@')[0],
-        userLocation: { state: 'Maharashtra', city: 'Pune' },
-      };
-      saveSessionAndNavigate(offlineSession);
+      console.error('[Login Error]:', error);
+      setErrorMessage('Unable to connect to the authentication service. Please ensure the backend is running.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDemoFill = (selectedRole) => {
-    setRole(selectedRole);
-    if (selectedRole === 'player') {
-      setEmail('player@scoutx.com');
-      setPassword('password123');
-    } else if (selectedRole === 'coach') {
-      setEmail('coach@scoutx.com');
-      setPassword('password123');
-    } else {
-      setEmail('admin@scoutx.com');
-      setPassword('password123');
-    }
+  const setDemoAccount = (roleEmail) => {
+    setEmail(roleEmail);
+    setPassword('password123');
+    setErrorMessage('');
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B0F19" />
-      
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+      {/* Top Header / Back Bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.navigate('Landing')}
+        >
+          <Ionicons name="arrow-back" size={18} color={COLORS.textPrimary} style={{ marginRight: 6 }} />
+          <Text style={styles.backButtonText}>Back to Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.brand}
+          onPress={() => navigation.navigate('Landing')}
+        >
+          <View style={styles.logoBadge}>
+            <Ionicons name="football" size={16} color="#FFFFFF" />
+          </View>
+          <Text style={styles.brandName}>ScoutX<Text style={styles.brandAccent}>.AI</Text></Text>
+        </TouchableOpacity>
+      </View>
+
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
+        style={styles.mainContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.logoRow}>
-              <Ionicons name="football" size={26} color="#10B981" />
-              <Text style={styles.logo}>ScoutX AI</Text>
-            </View>
-            <Text style={styles.welcomeText}>Welcome to Football Scouting</Text>
-            <Text style={styles.subText}>Sign in to access AI video assessments & talent discovery</Text>
-          </View>
-
-          {/* 3-Way Role Selection Tabs */}
-          <View style={styles.roleToggleContainer}>
-            <TouchableOpacity
-              style={[styles.roleTab, role === 'player' && styles.roleTabActive]}
-              onPress={() => setRole('player')}
-            >
-              <Ionicons
-                name="person"
-                size={16}
-                color={role === 'player' ? '#FFFFFF' : '#94A3B8'}
-              />
-              <Text style={[styles.roleTabText, role === 'player' && styles.roleTabTextActive]}>
-                Player
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.roleTab, role === 'coach' && styles.roleTabActive]}
-              onPress={() => setRole('coach')}
-            >
-              <Ionicons
-                name="shield-checkmark"
-                size={16}
-                color={role === 'coach' ? '#FFFFFF' : '#94A3B8'}
-              />
-              <Text style={[styles.roleTabText, role === 'coach' && styles.roleTabTextActive]}>
-                Coach
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.roleTab, role === 'admin' && styles.roleTabActive]}
-              onPress={() => setRole('admin')}
-            >
-              <Ionicons
-                name="settings"
-                size={16}
-                color={role === 'admin' ? '#FFFFFF' : '#94A3B8'}
-              />
-              <Text style={[styles.roleTabText, role === 'admin' && styles.roleTabTextActive]}>
-                Admin
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Form Inputs */}
-          <View style={styles.form}>
-            <Text style={styles.inputLabel}>Email Address</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="player@scoutx.com"
-                placeholderTextColor="#64748B"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
-
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor="#64748B"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#94A3B8"
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.loginLayout, isDesktop && styles.loginLayoutDesktop]}>
+            {/* Left Desktop Side Panel (Genuine Football Training Imagery) */}
+            {isDesktop && (
+              <View style={styles.sidePanel}>
+                <FootballImage
+                  source={FOOTBALL_MEDIA.authPanel}
+                  style={styles.sidePanelImage}
+                  title="Player Performance & Skill Analytics"
+                  icon="football-outline"
                 />
-              </TouchableOpacity>
+                <View style={styles.sidePanelOverlay}>
+                  <View style={styles.sidePanelBadge}>
+                    <Text style={styles.sidePanelBadgeText}>OBJECTIVE VERIFICATION</Text>
+                  </View>
+                  <Text style={styles.sidePanelHeading}>
+                    Measure What Matters on the Pitch.
+                  </Text>
+                  <Text style={styles.sidePanelSubtext}>
+                    Access computer vision scores for dribbling agility, shooting velocity, and ball control accuracy.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Right Side / Form Area */}
+            <View style={[styles.formPanel, isDesktop && styles.formPanelDesktop]}>
+              <View style={styles.formCard}>
+                <View style={styles.formHeader}>
+                  <Text style={styles.formTitle}>Sign In to ScoutX-AI</Text>
+                  <Text style={styles.formSubtitle}>
+                    Enter your email and password to access your football dashboard.
+                  </Text>
+                </View>
+
+                {/* Error Banner */}
+                {errorMessage ? (
+                  <View style={styles.errorBanner}>
+                    <Ionicons name="alert-circle" size={18} color={COLORS.accentRed} style={{ marginRight: 8 }} />
+                    <Text style={styles.errorText}>{errorMessage}</Text>
+                  </View>
+                ) : null}
+
+                {/* Email Field */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Email Address</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="mail-outline" size={18} color={COLORS.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.inputField}
+                      placeholder="name@academy.com"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={email}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        setErrorMessage('');
+                      }}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+                </View>
+
+                {/* Password Field */}
+                <View style={styles.inputGroup}>
+                  <View style={styles.passwordLabelRow}>
+                    <Text style={styles.inputLabel}>Password</Text>
+                  </View>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="lock-closed-outline" size={18} color={COLORS.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={[styles.inputField, { paddingRight: 40 }]}
+                      placeholder="••••••••••••"
+                      placeholderTextColor={COLORS.textMuted}
+                      value={password}
+                      onChangeText={(t) => {
+                        setPassword(t);
+                        setErrorMessage('');
+                      }}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity
+                      style={styles.showPasswordBtn}
+                      onPress={() => setShowPassword(!showPassword)}
+                      accessibilityRole="button"
+                      accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={18}
+                        color={COLORS.textMuted}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Submit Action */}
+                <TouchableOpacity
+                  style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Text style={styles.submitButtonText}>Sign In</Text>
+                      <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* OR Divider */}
+                <View style={styles.oauthDivider}>
+                  <View style={styles.oauthDividerLine} />
+                  <Text style={styles.oauthDividerText}>OR CONTINUE WITH</Text>
+                  <View style={styles.oauthDividerLine} />
+                </View>
+
+                {/* Social Authentication Buttons */}
+                <View style={styles.socialButtonsGroup}>
+                  <TouchableOpacity
+                    style={styles.googleButton}
+                    onPress={() => openSocialAuth('google')}
+                    disabled={loading}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Google"
+                  >
+                    <Ionicons name="logo-google" size={17} color="#EA4335" style={{ marginRight: 8 }} />
+                    <Text style={styles.googleButtonText}>Continue with Google</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.appleButton}
+                    onPress={() => openSocialAuth('apple')}
+                    disabled={loading}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Continue with Apple"
+                  >
+                    <Ionicons name="logo-apple" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.appleButtonText}>Continue with Apple</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Switch to Register */}
+                <View style={styles.switchAuthRow}>
+                  <Text style={styles.switchAuthPrompt}>Don't have an account?</Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                    <Text style={styles.switchAuthLink}> Create an account</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Demo Accounts Helper */}
+                <View style={styles.demoAccountsSection}>
+                  <Text style={styles.demoAccountsHeading}>PRE-SEEDED DEMO ACCOUNTS</Text>
+                  <View style={styles.demoPills}>
+                    <TouchableOpacity
+                      style={[styles.demoPill, email === 'player@scoutx.com' && styles.demoPillActive]}
+                      onPress={() => setDemoAccount('player@scoutx.com')}
+                    >
+                      <Ionicons name="football" size={12} color={COLORS.primary} style={{ marginRight: 4 }} />
+                      <Text style={styles.demoPillText}>Player</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.demoPill, email === 'coach@scoutx.com' && styles.demoPillActive]}
+                      onPress={() => setDemoAccount('coach@scoutx.com')}
+                    >
+                      <Ionicons name="briefcase" size={12} color={COLORS.primary} style={{ marginRight: 4 }} />
+                      <Text style={styles.demoPillText}>Coach / Scout</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.demoPill, email === 'admin@scoutx.com' && styles.demoPillActive]}
+                      onPress={() => setDemoAccount('admin@scoutx.com')}
+                    >
+                      <Ionicons name="shield-checkmark" size={12} color={COLORS.primary} style={{ marginRight: 4 }} />
+                      <Text style={styles.demoPillText}>Admin</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
             </View>
-
-            {/* Quick Demo Fill Buttons */}
-            <View style={styles.demoRow}>
-              <Text style={styles.demoLabel}>Demo Accounts:</Text>
-              <TouchableOpacity onPress={() => handleDemoFill('player')}>
-                <Text style={styles.demoChip}>⚡ Player</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDemoFill('coach')}>
-                <Text style={styles.demoChip}>⚡ Coach</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDemoFill('admin')}>
-                <Text style={styles.demoChip}>⚡ Admin</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Sign In Button */}
-            <TouchableOpacity
-              style={styles.submitButton}
-              activeOpacity={0.85}
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.submitButtonText}>
-                  Sign In as {role.toUpperCase()} ⚽
-                </Text>
-              )}
-            </TouchableOpacity>
           </View>
-
-          {/* Navigation to Register */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>New to ScoutX AI? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLink}>Register Account</Text>
-            </TouchableOpacity>
-          </View>
-
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <SocialAuthModal
+        visible={socialModalVisible}
+        provider={socialProvider}
+        role="player"
+        onClose={() => setSocialModalVisible(false)}
+        onSuccess={(sessionData) => saveSessionAndNavigate(sessionData)}
+        onError={(err) => setErrorMessage(err)}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#0B0F19',
+    backgroundColor: '#FFFFFF',
+  },
+  topBar: {
+    height: 58,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    backgroundColor: '#FFFFFF',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.xs,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  brandName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.3,
+  },
+  brandAccent: {
+    color: COLORS.primary,
+  },
+  mainContainer: {
+    flex: 1,
+    backgroundColor: COLORS.backgroundSecondary,
   },
   scrollContent: {
-    padding: 24,
-    justifyContent: 'center',
     flexGrow: 1,
+    justifyContent: 'center',
+    padding: SPACING.md,
   },
-  header: {
+  loginLayout: {
+    maxWidth: 960,
+    width: '100%',
+    marginHorizontal: 'auto',
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+    ...SHADOWS.card,
+  },
+  loginLayoutDesktop: {
+    flexDirection: 'row',
+    minHeight: 560,
+  },
+  sidePanel: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: COLORS.darkSection,
+  },
+  sidePanelImage: {
+    width: '100%',
+    height: '100%',
+  },
+  sidePanelOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: SPACING.xl,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+  },
+  sidePanelBadge: {
+    backgroundColor: 'rgba(21, 128, 61, 0.8)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.xs,
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  sidePanelBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  sidePanelHeading: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    lineHeight: 28,
+  },
+  sidePanelSubtext: {
+    fontSize: 13,
+    color: COLORS.textLightMuted,
+    lineHeight: 18,
+  },
+  formPanel: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: SPACING.xl,
+  },
+  formPanelDesktop: {
+    maxWidth: 480,
+  },
+  formCard: {
+    width: '100%',
+  },
+  formHeader: {
     marginBottom: 24,
   },
-  logoRow: {
+  formTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  formSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+  },
+  errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: RADIUS.sm,
+    padding: 12,
+    marginBottom: 18,
   },
-  logo: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#10B981',
-  },
-  welcomeText: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#F8FAFC',
-  },
-  subText: {
+  errorText: {
     fontSize: 13,
-    color: '#94A3B8',
-    marginTop: 4,
-  },
-  roleToggleContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 20,
-  },
-  roleTab: {
+    color: COLORS.accentRed,
+    fontWeight: '500',
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
   },
-  roleTabActive: {
-    backgroundColor: '#10B981',
-  },
-  roleTabText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  roleTabTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  form: {
-    marginBottom: 16,
+  inputGroup: {
+    marginBottom: 18,
   },
   inputLabel: {
-    color: '#CBD5E1',
     fontSize: 13,
     fontWeight: '600',
+    color: COLORS.textPrimary,
     marginBottom: 6,
-    marginTop: 10,
   },
-  inputContainer: {
+  passwordLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
-    paddingHorizontal: 14,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    backgroundColor: '#FFFFFF',
+    position: 'relative',
   },
   inputIcon: {
-    marginRight: 10,
+    paddingLeft: 12,
   },
-  input: {
+  inputField: {
     flex: 1,
-    paddingVertical: 13,
-    color: '#FFFFFF',
-    fontSize: 15,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    color: COLORS.textPrimary,
   },
-  eyeButton: {
-    padding: 8,
-  },
-  demoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 14,
-    marginBottom: 8,
-    flexWrap: 'wrap',
-  },
-  demoLabel: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  demoChip: {
-    color: '#10B981',
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    fontSize: 11,
-    fontWeight: '700',
+  showPasswordBtn: {
+    position: 'absolute',
+    right: 12,
+    padding: 4,
   },
   submitButton: {
-    backgroundColor: '#10B981',
-    paddingVertical: 15,
-    borderRadius: 14,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 18,
-    elevation: 4,
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 13,
+    borderRadius: RADIUS.sm,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  submitButtonDisabled: {
+    opacity: 0.65,
   },
   submitButtonText: {
-    color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
-  footer: {
+  oauthDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+  },
+  oauthDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+  oauthDividerText: {
+    paddingHorizontal: 10,
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    letterSpacing: 0.6,
+  },
+  socialButtonsGroup: {
+    gap: 10,
+    marginBottom: 20,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingVertical: 12,
+    borderRadius: RADIUS.sm,
+    ...SHADOWS.subtle,
+  },
+  googleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  appleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000000',
+    paddingVertical: 12,
+    borderRadius: RADIUS.sm,
+  },
+  appleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  switchAuthRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 16,
+    alignItems: 'center',
+    marginBottom: 24,
   },
-  footerText: {
-    color: '#94A3B8',
-    fontSize: 14,
+  switchAuthPrompt: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
-  registerLink: {
-    color: '#10B981',
-    fontSize: 14,
+  switchAuthLink: {
+    fontSize: 13,
     fontWeight: '700',
+    color: COLORS.primary,
+  },
+  demoAccountsSection: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingTop: 16,
+  },
+  demoAccountsHeading: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  demoPills: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  demoPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.backgroundSecondary,
+  },
+  demoPillActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
+  },
+  demoPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
   },
 });

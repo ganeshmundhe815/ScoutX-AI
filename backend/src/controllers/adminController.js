@@ -3,23 +3,34 @@ const User = require('../models/User');
 const PlayerProfile = require('../models/PlayerProfile');
 const CoachProfile = require('../models/CoachProfile');
 const FootballAssessment = require('../models/FootballAssessment');
+const Score = require('../models/Score');
+const Metric = require('../models/Metric');
+const Shortlist = require('../models/Shortlist');
 const embeddedStore = require('../config/embeddedStore');
+const { generateExcelBuffer } = require('../utils/excelBuilder');
 
-// @desc    Get aggregate platform metrics & statistics
+// @desc    Get aggregate platform metrics & statistics (P5 — Admin Manage Platform)
 // @route   GET /api/admin/stats
 // @access  Private (Admin)
 const getPlatformStats = async (req, res, next) => {
   try {
+    let totalUsers = 0;
     let totalPlayers = 0;
     let totalCoaches = 0;
     let totalAssessments = 0;
-    let avgOverallScore = 78.4;
-    let topPosition = 'Striker';
+    let totalScores = 0;
+    let totalMetrics = 0;
+    let totalShortlists = 0;
+    let avgOverallScore = 88.2;
 
     if (mongoose.connection.readyState === 1) {
-      totalPlayers = await User.countDocuments({ role: 'player' });
+      totalUsers = await User.countDocuments({});
+      totalPlayers = await User.countDocuments({ role: { $in: ['player', 'athlete'] } });
       totalCoaches = await User.countDocuments({ role: 'coach' });
       totalAssessments = await FootballAssessment.countDocuments({});
+      totalScores = (await Score.countDocuments({})) || totalAssessments;
+      totalMetrics = (await Metric.countDocuments({})) || totalAssessments * 8;
+      totalShortlists = await Shortlist.countDocuments({});
 
       const scoreAgg = await PlayerProfile.aggregate([
         {
@@ -34,24 +45,45 @@ const getPlatformStats = async (req, res, next) => {
       ]);
 
       if (scoreAgg.length > 0) {
-        avgOverallScore = Math.round(scoreAgg[0].avgOverall || 78.4);
+        avgOverallScore = Math.round((scoreAgg[0].avgOverall || 88.2) * 10) / 10;
       }
     } else {
-      totalPlayers = embeddedStore.users.filter((u) => u.role === 'player').length;
+      totalUsers = embeddedStore.users.length;
+      totalPlayers = embeddedStore.users.filter((u) => u.role === 'player' || u.role === 'athlete').length;
       totalCoaches = embeddedStore.users.filter((u) => u.role === 'coach').length;
-      totalAssessments = embeddedStore.footballAssessments.length + 8;
+      totalAssessments = embeddedStore.footballAssessments.length;
+      totalScores = embeddedStore.scores.length;
+      totalMetrics = embeddedStore.metrics.length;
+      totalShortlists = embeddedStore.shortlists.length;
     }
 
     res.status(200).json({
       status: 'success',
       data: {
+        totalRegisteredUsers: totalUsers,
         totalRegisteredPlayers: totalPlayers,
         totalVerifiedCoaches: totalCoaches,
         totalAIAssessmentsCompleted: totalAssessments,
+        totalScoresGenerated: totalScores,
+        totalMetricsTracked: totalMetrics,
+        totalShortlistsCreated: totalShortlists,
         nationalAvgOverallScore: avgOverallScore,
         mostAssessedDrill: 'Slalom Dribbling (48%)',
         activeAIModel: 'YOLOv8 + MediaPipe Pose 33-Landmarks',
         serverStatus: 'Operational 🟢',
+        erEntities: {
+          USER: totalUsers,
+          ATHLETE: totalPlayers,
+          COACH: totalCoaches,
+          ASSESSMENT: totalAssessments,
+          SCORE: totalScores,
+          METRIC: totalMetrics,
+          SHORTLIST: totalShortlists,
+        },
+        dfdStores: {
+          D1_VIDEO_STORAGE: `${totalAssessments} Football Clips`,
+          D2_MONGODB: 'Connected & Synced',
+        },
       },
     });
   } catch (error) {
@@ -215,13 +247,26 @@ const getAdminAssessments = async (req, res, next) => {
     } else {
       assessments = (embeddedStore.footballAssessments || []).map((a, idx) => ({
         _id: a._id || `asm_${idx + 1}`,
+        assessment_id: a.assessment_id || `ASM-50100${idx + 1}`,
         drillType: a.drillType || 'dribbling',
+        drill_type: a.drill_type || a.drillType || 'dribbling',
+        status: a.status || 'completed',
         overallScore: a.overallScore || 91.5,
+        score: a.score || {
+          score_id: `SCR-70100${idx + 1}`,
+          technique: 91,
+          consistency: 89,
+          accuracy: 92,
+          endurance: 88,
+          overall: a.overallScore || 90,
+        },
+        metricsList: a.metricsList || [],
         aiConfidenceScore: 0.98,
         createdAt: a.createdAt || new Date(),
         player: {
-          playerId: 'FB-882104',
-          user: { name: 'Sunil Chhetri Jr', location: { state: 'Karnataka' } },
+          playerId: a.athlete_id || 'FB-882104',
+          athlete_id: a.athlete_id || 'FB-882104',
+          user: { name: 'Sunil Chhetri Jr', location: { state: 'Karnataka', city: 'Bengaluru' } },
         },
       }));
     }
@@ -231,27 +276,39 @@ const getAdminAssessments = async (req, res, next) => {
       assessments = [
         {
           _id: 'asm_01',
+          assessment_id: 'ASM-501001',
           drillType: 'shooting',
+          drill_type: 'shooting',
+          status: 'completed',
           overallScore: 92.5,
+          score: { score_id: 'SCR-701001', technique: 91, consistency: 89, accuracy: 93, endurance: 88, overall: 90 },
           aiConfidenceScore: 0.98,
           createdAt: new Date(Date.now() - 3600000),
-          player: { playerId: 'FB-882104', user: { name: 'Sunil Chhetri Jr', location: { state: 'Karnataka' } } },
+          player: { playerId: 'FB-882104', athlete_id: 'FB-882104', user: { name: 'Sunil Chhetri Jr', location: { state: 'Karnataka', city: 'Bengaluru' } } },
         },
         {
           _id: 'asm_02',
+          assessment_id: 'ASM-501002',
           drillType: 'dribbling',
+          drill_type: 'dribbling',
+          status: 'completed',
           overallScore: 94.0,
+          score: { score_id: 'SCR-701002', technique: 94, consistency: 91, accuracy: 86, endurance: 92, overall: 91 },
           aiConfidenceScore: 0.97,
           createdAt: new Date(Date.now() - 7200000),
-          player: { playerId: 'FB-519203', user: { name: 'Lallianzuala Changte Jr', location: { state: 'Mizoram' } } },
+          player: { playerId: 'FB-519203', athlete_id: 'FB-519203', user: { name: 'Lallianzuala Changte Jr', location: { state: 'Mizoram', city: 'Aizawl' } } },
         },
         {
           _id: 'asm_03',
+          assessment_id: 'ASM-501003',
           drillType: 'ball_control',
+          drill_type: 'ball_control',
+          status: 'completed',
           overallScore: 89.0,
+          score: { score_id: 'SCR-701003', technique: 90, consistency: 92, accuracy: 85, endurance: 87, overall: 89 },
           aiConfidenceScore: 0.99,
           createdAt: new Date(Date.now() - 14400000),
-          player: { playerId: 'FB-992101', user: { name: 'Sahal Samad Jr', location: { state: 'Kerala' } } },
+          player: { playerId: 'FB-992101', athlete_id: 'FB-992101', user: { name: 'Sahal Samad Jr', location: { state: 'Kerala', city: 'Kochi' } } },
         },
       ];
     }
@@ -292,6 +349,67 @@ const deleteUser = async (req, res, next) => {
   }
 };
 
+// @desc    Export platform users to Excel (.xlsx) file (Admin only)
+// @route   GET /api/admin/export/users
+// @access  Private (Admin)
+const exportUsersExcel = async (req, res, next) => {
+  try {
+    let rawUsers = [];
+
+    if (mongoose.connection.readyState === 1) {
+      // Exclude all sensitive fields: password, password_hash
+      rawUsers = await User.find({})
+        .select('-password -password_hash')
+        .sort({ createdAt: -1 })
+        .lean();
+    } else {
+      rawUsers = embeddedStore.users.map(({ password, password_hash, ...rest }) => rest);
+    }
+
+    const headers = [
+      'User ID',
+      'Name',
+      'Email',
+      'Role',
+      'Auth Provider',
+      'Profile Status',
+      'City',
+      'State',
+      'Registration Date',
+    ];
+
+    const rows = rawUsers.map((u) => {
+      const userId = u.user_id || (u._id ? String(u._id) : 'N/A');
+      const name = u.name || '';
+      const email = u.email || '';
+      const role = (u.role || 'player').toUpperCase();
+      const authProvider = (u.authProvider || 'local').toUpperCase();
+      const status = u.isActive === false ? 'SUSPENDED' : 'ACTIVE';
+      const city = u.location?.city || '';
+      const state = u.location?.state || '';
+      const regDate = u.createdAt ? new Date(u.createdAt).toISOString().split('T')[0] : 'N/A';
+
+      return [userId, name, email, role, authProvider, status, city, state, regDate];
+    });
+
+    const excelBuffer = generateExcelBuffer('ScoutX_Users', headers, rows);
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="scoutx_users_export.xlsx"'
+    );
+    res.setHeader('Content-Length', excelBuffer.length);
+
+    return res.status(200).send(excelBuffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getPlatformStats,
   getAllUsers,
@@ -300,5 +418,6 @@ module.exports = {
   getAdminCoaches,
   getAdminAssessments,
   deleteUser,
+  exportUsersExcel,
 };
 

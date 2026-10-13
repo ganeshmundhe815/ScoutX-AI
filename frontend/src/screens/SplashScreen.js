@@ -45,7 +45,7 @@ export default function SplashScreen({ navigation }) {
       if (savedSession && savedSession.userName) {
         navigation.replace('Home', savedSession);
       } else {
-        navigation.replace('Login');
+        navigation.replace('Landing');
       }
     }, 1200);
 

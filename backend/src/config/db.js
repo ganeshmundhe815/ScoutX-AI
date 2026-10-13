@@ -111,8 +111,103 @@ const seedInitialData = async () => {
 
       console.log('🌱 Pre-seeded National Talent Profiles into MongoDB!');
     }
+
+    const PlayerProfile = require('../models/PlayerProfile');
+    const CoachProfile = require('../models/CoachProfile');
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash('password123', 10);
+
+    // Ensure player@scoutx.com exists
+    const existingPlayer = await User.findOne({ email: 'player@scoutx.com' });
+    if (!existingPlayer) {
+      const pUser = await User.create({
+        name: 'Sunil Chhetri Jr',
+        email: 'player@scoutx.com',
+        password: hashedPassword,
+        password_hash: hashedPassword,
+        role: 'player',
+        phone: '9876543210',
+        location: { state: 'Karnataka', district: 'Bengaluru', city: 'Bengaluru' },
+        isActive: true,
+      });
+
+      await PlayerProfile.create({
+        user: pUser._id,
+        playerId: 'FB-882104',
+        age: 18,
+        position: 'Striker',
+        city: 'Bengaluru',
+        preferredFoot: 'Right',
+        heightCm: 178,
+        weightKg: 72,
+        clubOrTeam: 'Bengaluru Youth FC',
+        overallScore: 90.0,
+        dribblingScore: 91.0,
+        shootingScore: 93.0,
+        ballControlScore: 87.0,
+        shotAccuracy: 89.0,
+        estimatedPower: 86.0,
+        nationalPercentile: 96.4,
+        assessmentCount: 4,
+      });
+    }
+
+    // Ensure coach@scoutx.com exists
+    const existingCoach = await User.findOne({ email: 'coach@scoutx.com' });
+    if (!existingCoach) {
+      const cUser = await User.create({
+        name: 'Coach Ranjan Patil',
+        email: 'coach@scoutx.com',
+        password: hashedPassword,
+        password_hash: hashedPassword,
+        role: 'coach',
+        phone: '9876543212',
+        location: { state: 'Maharashtra', district: 'Mumbai', city: 'Mumbai' },
+        isActive: true,
+      });
+
+      await CoachProfile.create({
+        user: cUser._id,
+        coachId: 'COACH-102941',
+        clubOrAcademy: 'Mumbai City Youth Academy',
+        licenseLevel: 'AFC A / UEFA A',
+        experienceYears: 12,
+      });
+    }
+
+    // Ensure admin@scoutx.com exists
+    const existingAdmin = await User.findOne({ email: 'admin@scoutx.com' });
+    if (!existingAdmin) {
+      await User.create({
+        name: 'ScoutX Football Admin',
+        email: 'admin@scoutx.com',
+        password: hashedPassword,
+        password_hash: hashedPassword,
+        role: 'admin',
+        phone: '9876543299',
+        location: { state: 'Maharashtra', district: 'Pune', city: 'Pune' },
+        isActive: true,
+      });
+    }
+
+    // Ensure ganeshmundhe815@gmail.com exists as approved admin
+    const existingGanesh = await User.findOne({ email: 'ganeshmundhe815@gmail.com' });
+    if (!existingGanesh) {
+      await User.create({
+        name: 'Ganesh Mundhe',
+        email: 'ganeshmundhe815@gmail.com',
+        password: hashedPassword,
+        password_hash: hashedPassword,
+        role: 'admin',
+        phone: '9876543288',
+        location: { state: 'Maharashtra', district: 'Pune', city: 'Pune' },
+        isActive: true,
+      });
+    }
+
+    console.log('✅ ScoutX Core Demo Accounts (Player, Coach, Admins) Seeded!');
   } catch (err) {
-    // Non-blocking
+    console.warn('[Seed Error]:', err.message);
   }
 };
 

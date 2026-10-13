@@ -102,3 +102,5 @@ app.listen(PORT, () => {
   console.log(`👑 Admin Portal:      http://localhost:${PORT}/api/admin/stats`);
   console.log('====================================================');
 });
+
+module.exports = app;
