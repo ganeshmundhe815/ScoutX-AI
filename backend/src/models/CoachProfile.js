@@ -1,5 +1,67 @@
 const mongoose = require('mongoose');
 
+const ALLOWED_COACH_LICENSES = [
+  'AFC D License',
+  'AFC D / AIFF D',
+  'AFC C License',
+  'AFC C / UEFA C',
+  'AFC B License',
+  'AFC B / UEFA B',
+  'AFC A License',
+  'AFC A / UEFA A',
+  'Grassroots',
+  'PRO License',
+  'AFC Pro Diploma',
+  'Independent Scout',
+];
+
+const normalizeCoachLicense = (input) => {
+  if (!input || typeof input !== 'string') {
+    return 'AFC D License';
+  }
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return 'AFC D License';
+  }
+
+  // Exact match
+  if (ALLOWED_COACH_LICENSES.includes(trimmed)) {
+    return trimmed;
+  }
+
+  // Case-insensitive exact match
+  const lower = trimmed.toLowerCase();
+  const matched = ALLOWED_COACH_LICENSES.find(
+    (lic) => lic.toLowerCase() === lower
+  );
+  if (matched) return matched;
+
+  // Pattern / variation matching
+  if (/^(\s*afc\s*)?d(\s*license)?$/i.test(trimmed) || /aiff\s*d/i.test(trimmed)) {
+    return 'AFC D License';
+  }
+  if (/^(\s*afc\s*)?c(\s*license)?$/i.test(trimmed) || /uefa\s*c/i.test(trimmed)) {
+    return 'AFC C / UEFA C';
+  }
+  if (/^(\s*afc\s*)?b(\s*license)?$/i.test(trimmed) || /uefa\s*b/i.test(trimmed)) {
+    return 'AFC B / UEFA B';
+  }
+  if (/^(\s*afc\s*)?a(\s*license)?$/i.test(trimmed) || /uefa\s*a/i.test(trimmed)) {
+    return 'AFC A / UEFA A';
+  }
+  if (/pro/i.test(trimmed)) {
+    return 'PRO License';
+  }
+  if (/grassroot/i.test(trimmed)) {
+    return 'Grassroots';
+  }
+  if (/scout/i.test(trimmed)) {
+    return 'Independent Scout';
+  }
+
+  return 'AFC D License';
+};
+
 /**
  * ER Diagram Entity: COACH (CoachProfile)
  * Attributes: PK coach_id, FK user_id, coach_name / profile, (other fields as required)
@@ -42,8 +104,9 @@ const coachProfileSchema = new mongoose.Schema(
     },
     licenseLevel: {
       type: String,
-      enum: ['Grassroots', 'AFC C / UEFA C', 'AFC B / UEFA B', 'AFC A / UEFA A', 'PRO License', 'Independent Scout'],
-      default: 'AFC A / UEFA A',
+      enum: ALLOWED_COACH_LICENSES,
+      default: 'AFC D License',
+      set: normalizeCoachLicense,
     },
     experienceYears: {
       type: Number,
@@ -85,4 +148,8 @@ coachProfileSchema.pre('save', function (next) {
   if (typeof next === 'function') next();
 });
 
-module.exports = mongoose.model('CoachProfile', coachProfileSchema);
+const CoachProfile = mongoose.model('CoachProfile', coachProfileSchema);
+CoachProfile.ALLOWED_COACH_LICENSES = ALLOWED_COACH_LICENSES;
+CoachProfile.normalizeCoachLicense = normalizeCoachLicense;
+
+module.exports = CoachProfile;

@@ -624,6 +624,11 @@ export default function RegisterScreen({ navigation, route }) {
         visible={socialModalVisible}
         provider={socialProvider}
         role={role}
+        extraProfileData={
+          role === 'coach'
+            ? { licenseLevel, clubOrAcademy, experienceYears }
+            : {}
+        }
         onClose={() => setSocialModalVisible(false)}
         onSuccess={(sessionData) => saveSessionAndNavigate(sessionData)}
         onError={(err) => setErrorMessage(err)}

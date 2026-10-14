@@ -39,6 +39,7 @@ export default function SocialAuthModal({
   visible,
   provider = 'google', // 'google' | 'apple'
   role = 'player',     // 'player' | 'coach'
+  extraProfileData = {},
   onClose,
   onSuccess,
   onError,
@@ -123,6 +124,9 @@ export default function SocialAuthModal({
           },
           role,
           linkConfirmed,
+          licenseLevel: extraProfileData?.licenseLevel,
+          clubOrAcademy: extraProfileData?.clubOrAcademy,
+          experienceYears: extraProfileData?.experienceYears,
         };
       } else {
         // Apple provider
@@ -140,6 +144,9 @@ export default function SocialAuthModal({
           },
           role,
           linkConfirmed,
+          licenseLevel: extraProfileData?.licenseLevel,
+          clubOrAcademy: extraProfileData?.clubOrAcademy,
+          experienceYears: extraProfileData?.experienceYears,
         };
       }
 

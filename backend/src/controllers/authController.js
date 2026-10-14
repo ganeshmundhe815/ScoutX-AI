@@ -146,8 +146,8 @@ const registerUser = async (req, res, next) => {
       } else if (role === 'coach') {
         profileDoc = await CoachProfile.create({
           user: userDoc._id,
-          clubOrAcademy,
-          licenseLevel,
+          clubOrAcademy: clubOrAcademy || 'Youth Football Academy',
+          licenseLevel: CoachProfile.normalizeCoachLicense(licenseLevel),
           experienceYears: Number(experienceYears) || 3,
         });
       }
@@ -203,8 +203,8 @@ const registerUser = async (req, res, next) => {
           _id: `coach_${Date.now()}`,
           user: userDoc._id,
           coachId: `COACH-${Math.floor(100000 + Math.random() * 900000)}`,
-          clubOrAcademy,
-          licenseLevel,
+          clubOrAcademy: clubOrAcademy || 'Youth Football Academy',
+          licenseLevel: CoachProfile.normalizeCoachLicense(licenseLevel),
           experienceYears: Number(experienceYears) || 3,
           shortlistedPlayers: [],
           createdAt: new Date(),
@@ -367,7 +367,17 @@ const getCurrentProfile = async (req, res, next) => {
 // @access  Public
 const googleAuth = async (req, res, next) => {
   try {
-    const { token, idToken, credential, role = 'player', userInfo, linkConfirmed } = req.body;
+    const {
+      token,
+      idToken,
+      credential,
+      role = 'player',
+      userInfo,
+      linkConfirmed,
+      licenseLevel,
+      clubOrAcademy,
+      experienceYears,
+    } = req.body;
     const rawToken = idToken || credential || token;
 
     let googlePayload = null;
@@ -516,9 +526,9 @@ const googleAuth = async (req, res, next) => {
         } else if (assignedRole === 'coach') {
           profileDoc = await CoachProfile.create({
             user: userDoc._id,
-            clubOrAcademy: 'Youth Football Academy',
-            licenseLevel: 'AFC D License',
-            experienceYears: 3,
+            clubOrAcademy: clubOrAcademy || userInfo?.clubOrAcademy || 'Youth Football Academy',
+            licenseLevel: CoachProfile.normalizeCoachLicense(licenseLevel || userInfo?.licenseLevel),
+            experienceYears: Number(experienceYears || userInfo?.experienceYears) || 3,
           });
         }
       }
@@ -615,9 +625,9 @@ const googleAuth = async (req, res, next) => {
             _id: `coach_${Date.now()}`,
             user: userDoc._id,
             coachId: `COACH-${Math.floor(100000 + Math.random() * 900000)}`,
-            clubOrAcademy: 'Youth Football Academy',
-            licenseLevel: 'AFC D License',
-            experienceYears: 3,
+            clubOrAcademy: clubOrAcademy || userInfo?.clubOrAcademy || 'Youth Football Academy',
+            licenseLevel: CoachProfile.normalizeCoachLicense(licenseLevel || userInfo?.licenseLevel),
+            experienceYears: Number(experienceYears || userInfo?.experienceYears) || 3,
             shortlistedPlayers: [],
             createdAt: new Date(),
           };
@@ -656,10 +666,20 @@ const googleAuth = async (req, res, next) => {
 
 // @desc    Apple Sign-In Authentication (Login or Register)
 // @route   POST /api/auth/apple
-// @access  Public
 const appleAuth = async (req, res, next) => {
   try {
-    const { identityToken, authorizationCode, fullName, email, role = 'player', appleId, linkConfirmed } = req.body;
+    const {
+      identityToken,
+      authorizationCode,
+      fullName,
+      email,
+      role = 'player',
+      appleId,
+      linkConfirmed,
+      licenseLevel,
+      clubOrAcademy,
+      experienceYears,
+    } = req.body;
 
     let applePayload = null;
 
@@ -786,9 +806,9 @@ const appleAuth = async (req, res, next) => {
         } else if (assignedRole === 'coach') {
           profileDoc = await CoachProfile.create({
             user: userDoc._id,
-            clubOrAcademy: 'Youth Football Academy',
-            licenseLevel: 'AFC D License',
-            experienceYears: 3,
+            clubOrAcademy: clubOrAcademy || 'Youth Football Academy',
+            licenseLevel: CoachProfile.normalizeCoachLicense(licenseLevel),
+            experienceYears: Number(experienceYears) || 3,
           });
         }
       }
@@ -882,9 +902,9 @@ const appleAuth = async (req, res, next) => {
             _id: `coach_${Date.now()}`,
             user: userDoc._id,
             coachId: `COACH-${Math.floor(100000 + Math.random() * 900000)}`,
-            clubOrAcademy: 'Youth Football Academy',
-            licenseLevel: 'AFC D License',
-            experienceYears: 3,
+            clubOrAcademy: clubOrAcademy || 'Youth Football Academy',
+            licenseLevel: CoachProfile.normalizeCoachLicense(licenseLevel),
+            experienceYears: Number(experienceYears) || 3,
             shortlistedPlayers: [],
             createdAt: new Date(),
           };
