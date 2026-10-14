@@ -62,6 +62,7 @@ export default function RecordUploadScreen({ route, navigation }) {
   const [processingState, setProcessingState] = useState('idle'); // 'idle', 'processing', 'completed'
   const [activeStep, setActiveStep] = useState(1);
   const [assessmentResult, setAssessmentResult] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const currentConfig = DRILL_CONFIG[selectedDrill] || DRILL_CONFIG.dribbling;
 
@@ -143,36 +144,22 @@ export default function RecordUploadScreen({ route, navigation }) {
 
       clearInterval(stepInterval);
 
-      if (resData && (resData.status === 'success' || resData.data)) {
+      if (resData && (resData.status === 'success' || (resData.data && !resData.data.error))) {
         setAssessmentResult(resData.data || resData);
         setProcessingState('completed');
       } else {
-        throw new Error(resData?.message || 'Analysis failed');
+        throw new Error(
+          resData?.message ||
+            'AI video analysis could not be completed. Please ensure the Python Computer Vision service is running.'
+        );
       }
     } catch (err) {
       clearInterval(stepInterval);
-      // Realistic fallback evaluation
-      setAssessmentResult({
-        drill_type: selectedDrill,
-        overallScore: 89.0,
-        score: {
-          technique: 91,
-          consistency: 88,
-          accuracy: 90,
-          endurance: 87,
-          overall: 89,
-        },
-        metricsList: [
-          { metric_name: 'on_target_accuracy', value: 89.5, unit: '%' },
-          { metric_name: 'control_proximity', value: 0.34, unit: 'm' },
-          { metric_name: 'touch_cadence', value: 16, unit: 'touches' },
-        ],
-        feedback: [
-          'Strong striking follow-through with clean body trajectory alignment.',
-          'Maintained consistent center-of-mass balance through turn transitions.',
-        ],
-      });
-      setProcessingState('completed');
+      setErrorMessage(
+        err.message ||
+          'AI video analysis service is currently unavailable. Real computer vision evaluation could not be completed.'
+      );
+      setProcessingState('error');
     }
   };
 
@@ -181,6 +168,7 @@ export default function RecordUploadScreen({ route, navigation }) {
     setProcessingState('idle');
     setAssessmentResult(null);
     setActiveStep(1);
+    setErrorMessage('');
   };
 
   return (
@@ -325,6 +313,17 @@ export default function RecordUploadScreen({ route, navigation }) {
                   </View>
                 )}
 
+                {/* Error Banner when AI service is unavailable */}
+                {processingState === 'error' && (
+                  <View style={styles.errorBanner}>
+                    <Ionicons name="alert-circle" size={22} color="#DC2626" style={{ marginRight: 10 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.errorBannerTitle}>AI Assessment Unavailable</Text>
+                      <Text style={styles.errorBannerText}>{errorMessage}</Text>
+                    </View>
+                  </View>
+                )}
+
                 {/* Action Button */}
                 {processingState !== 'processing' && (
                   <TouchableOpacity
@@ -333,7 +332,9 @@ export default function RecordUploadScreen({ route, navigation }) {
                     disabled={!selectedFile}
                   >
                     <Ionicons name="sparkles" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.analyzeButtonText}>Start AI Assessment</Text>
+                    <Text style={styles.analyzeButtonText}>
+                      {processingState === 'error' ? 'Retry AI Assessment' : 'Start AI Assessment'}
+                    </Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -878,5 +879,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  errorBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#991B1B',
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: '#B91C1C',
+    marginTop: 2,
+    lineHeight: 18,
   },
 });

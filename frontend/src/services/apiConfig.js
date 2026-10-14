@@ -8,27 +8,48 @@ import { Platform } from 'react-native';
 // Host machine Wi-Fi IP for Physical Phone & Emulator connectivity
 const LAN_HOST_IP = '192.168.1.79';
 
-// Live Cloud URL (optional fallback for remote testing over 4G/5G)
-const CLOUD_API_URL = 'https://scoutx-backend.onrender.com/api';
-const USE_CLOUD = false;
+// Live Cloud URL (fallback for public deployments and remote testing)
+const CLOUD_API_URL = process.env.EXPO_PUBLIC_CLOUD_API_URL || 'https://scoutx-backend.onrender.com/api';
+const USE_CLOUD = process.env.EXPO_PUBLIC_USE_CLOUD === 'true';
+
+const isLanHostname = (hostname) => {
+  if (!hostname) return false;
+  if (hostname.endsWith('.local')) return true;
+  // Match standard private IPv4 ranges: 192.168.x.x, 10.x.x.x, 172.16-31.x.x
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+  return false;
+};
 
 const getApiBaseUrl = () => {
-  if (USE_CLOUD) {
-    return CLOUD_API_URL;
-  }
-  // 1. Custom explicit Expo Public API URL if set in environment
+  // 1. Explicit environment variable override takes absolute precedence
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
-  // 2. Web Browser: dynamically resolve the host so LAN devices hitting http://<HOST_IP>:8081 connect to http://<HOST_IP>:5000
+
+  // 2. Explicit cloud mode toggle
+  if (USE_CLOUD) {
+    return CLOUD_API_URL;
+  }
+
+  // 3. Web Browser environment
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname;
-    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    // Local developer machine
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5000/api';
+    }
+    // Local LAN Wi-Fi testing (e.g. phone hitting laptop's Expo web server)
+    if (isLanHostname(hostname)) {
       return `http://${hostname}:5000/api`;
     }
-    return 'http://localhost:5000/api';
+    // Online Public Domain (e.g. Vercel, Render, Netlify, custom domain)
+    // Never route public web traffic to laptop localhost or private LAN IP
+    return CLOUD_API_URL;
   }
-  // 3. Mobile devices (Android / iOS) connect via LAN IP
+
+  // 4. Physical Mobile devices on local Wi-Fi (Expo Go)
   return `http://${LAN_HOST_IP}:5000/api`;
 };
 

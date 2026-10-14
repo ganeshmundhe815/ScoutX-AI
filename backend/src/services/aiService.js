@@ -41,41 +41,13 @@ const sendVideoToAI = async (videoFilePath, drillType = 'dribbling') => {
     console.log(`✅ [AI Bridge] Received dynamic AI assessment metrics from Python CV Engine!`);
     return response.data;
   } catch (error) {
-    console.warn(`⚠️ [AI Bridge Notice]: ${error.message}. Computing calibrated dynamic football metrics.`);
-
-    // Dynamic variation based on timestamp and drill
-    const timeFactor = (Date.now() % 100) / 10.0;
-    const baseTouches = 12 + Math.floor(Math.random() * 8);
-    const leftPct = 25.0 + Math.round(Math.random() * 25.0);
-    const rightPct = 100.0 - leftPct;
-
+    console.error(`❌ [AI Bridge]: Python CV Microservice unavailable at ${AI_SERVICE_URL} (${error.message})`);
     return {
-      status: 'success',
+      success: false,
+      status: 'unavailable',
+      message: `AI Computer Vision Service is unavailable (${error.message}). Real video assessment could not be processed. Please ensure the Python AI microservice is running on port 8000.`,
+      error: error.message,
       drillType,
-      drillScore: 80.0 + Math.round(timeFactor * 1.5 * 10) / 10,
-      metrics: {
-        durationSec: 10.0 + Math.round(timeFactor * 10) / 10,
-        ballTouches: baseTouches,
-        leftFootTouches: Math.round(baseTouches * (leftPct / 100)),
-        rightFootTouches: baseTouches - Math.round(baseTouches * (leftPct / 100)),
-        leftFootPercentage: leftPct,
-        rightFootPercentage: rightPct,
-        controlConsistency: 85.0 + Math.round(Math.random() * 10),
-        directionChanges: 4 + Math.floor(Math.random() * 4),
-        shotsCount: 4 + Math.floor(Math.random() * 3),
-        goalsDetected: 3 + Math.floor(Math.random() * 2),
-        onTargetAccuracy: 75.0 + Math.round(Math.random() * 20),
-        estimatedPower: 78.0 + Math.round(Math.random() * 16),
-        shotDirection: Math.random() > 0.5 ? 'Top-Right Corner' : 'Top-Left Corner',
-        touchesCount: 22 + Math.floor(Math.random() * 15),
-        reboundControlScore: 84.0 + Math.round(Math.random() * 12),
-        avgPlayerBallDistance: 0.35 + Math.round(Math.random() * 20) / 100,
-      },
-      feedback: [
-        `Dynamic AI assessment completed for ${drillType.toUpperCase()}!`,
-        'Continuous frame-by-frame motion vectors extracted successfully.',
-      ],
-      aiConfidenceScore: 0.95,
       timestamp: new Date().toISOString(),
     };
   }

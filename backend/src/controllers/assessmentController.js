@@ -27,6 +27,17 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
     // 1. P3 — FOOTBALL AI ANALYSIS: Send video to Python AI Computer Vision Engine (Port 8000)
     const aiResult = await sendVideoToAI(videoPath, drillType);
 
+    if (!aiResult || aiResult.status === 'unavailable' || aiResult.success === false) {
+      return res.status(503).json({
+        status: 'fail',
+        message:
+          aiResult?.message ||
+          'AI Computer Vision analysis service is unavailable. Real video assessment could not be processed.',
+        serviceStatus: 'unavailable',
+        drillType,
+      });
+    }
+
     // 2. P4 — SCORING & REPORTS: Calculate ER Diagram METRIC (1:N) & SCORE (1:1) entities
     const {
       dribblingData,

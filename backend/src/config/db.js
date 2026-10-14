@@ -21,6 +21,21 @@ const connectDB = async () => {
     await seedInitialData();
     return conn;
   } catch (error) {
+    if (process.env.NODE_ENV === 'production') {
+      const sanitizedUri = uri.replace(/\/\/.*@/, '//<credentials>@');
+      console.error('====================================================');
+      console.error('❌ [CRITICAL PRODUCTION ERROR] MongoDB Connection Failed!');
+      console.error(`📍 Attempted URI: ${sanitizedUri}`);
+      console.error(`💥 Error Details: ${error.message}`);
+      console.error('⚠️ In production mode, temporary in-memory storage is disabled to prevent user data loss.');
+      console.error('👉 Troubleshooting Checklist:');
+      console.error('   1. Check MONGO_URI in your cloud/production environment variables.');
+      console.error('   2. Verify MongoDB Atlas Network Access (IP Access List: e.g. 0.0.0.0/0).');
+      console.error('   3. Verify database user credentials and permissions in MongoDB Atlas.');
+      console.error('====================================================');
+      throw new Error(`Production MongoDB connection failed: ${error.message}`);
+    }
+
     console.log('🚀 Initializing Embedded Autonomous MongoDB Database Engine...');
 
     try {
