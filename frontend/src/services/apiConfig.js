@@ -55,6 +55,42 @@ const getApiBaseUrl = () => {
 
 export const BASE_API_URL = getApiBaseUrl();
 
+/**
+ * Retrieves the currently persisted authentication token from local storage (Web)
+ * @returns {string|null} JWT token if present, else null
+ */
+export const getStoredAuthToken = () => {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    try {
+      const directToken = localStorage.getItem('scoutx_token');
+      if (directToken) return directToken;
+      const sessionStr = localStorage.getItem('scoutx_user_session');
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        if (session && session.userToken) return session.userToken;
+      }
+    } catch (e) {
+      console.warn('[getStoredAuthToken Error]:', e);
+    }
+  }
+  return null;
+};
+
+/**
+ * Builds HTTP headers including Authorization Bearer token when available
+ * @param {string|null} explicitToken - Optional explicit token to prioritize
+ * @param {Object} extraHeaders - Any additional headers (e.g. Content-Type)
+ * @returns {Object} Headers object with Authorization header attached
+ */
+export const getAuthHeaders = (explicitToken = null, extraHeaders = {}) => {
+  const token = explicitToken || getStoredAuthToken();
+  const headers = { ...extraHeaders };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
 export default {
   BASE_API_URL,
   AUTH: {

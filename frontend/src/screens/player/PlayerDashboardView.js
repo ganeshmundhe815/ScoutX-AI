@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BASE_API_URL } from '../../services/apiConfig';
+import { BASE_API_URL, getStoredAuthToken, getAuthHeaders } from '../../services/apiConfig';
 import { COLORS, SPACING, RADIUS, SHADOWS } from '../../constants/theme';
 
 const FOOTBALL_DRILLS = [
@@ -92,17 +92,18 @@ export default function PlayerDashboardView({
     profile?.weightKg !== null && profile?.weightKg !== undefined ? String(profile.weightKg) : ''
   );
 
+  // Resolve authenticated token from props or persisted web session storage
+  const effectiveToken = userToken || getStoredAuthToken();
+
   useEffect(() => {
     fetchAssessmentHistory();
-  }, []);
+  }, [effectiveToken]);
 
   const fetchAssessmentHistory = async () => {
     setLoadingHistory(true);
     try {
       const response = await fetch(`${BASE_API_URL}/assessments`, {
-        headers: {
-          ...(userToken && { Authorization: `Bearer ${userToken}` }),
-        },
+        headers: getAuthHeaders(effectiveToken),
       });
       const resData = await response.json();
       if (response.ok && Array.isArray(resData.data)) {
@@ -344,7 +345,7 @@ export default function PlayerDashboardView({
             </View>
             <TouchableOpacity
               style={styles.actionBannerButton}
-              onPress={() => navigation.navigate('RecordUpload')}
+              onPress={() => navigation.navigate('RecordUpload', { userToken: effectiveToken })}
             >
               <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.actionBannerBtnText}>Upload Drill Video</Text>
@@ -375,7 +376,7 @@ export default function PlayerDashboardView({
                 </Text>
                 <TouchableOpacity
                   style={styles.emptyStateAction}
-                  onPress={() => navigation.navigate('RecordUpload')}
+                  onPress={() => navigation.navigate('RecordUpload', { userToken: effectiveToken })}
                 >
                   <Ionicons name="add" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
                   <Text style={styles.emptyStateActionText}>Upload First Drill</Text>
@@ -441,7 +442,7 @@ export default function PlayerDashboardView({
                 </View>
                 <TouchableOpacity
                   style={styles.drillUploadBtn}
-                  onPress={() => navigation.navigate('RecordUpload', { defaultDrill: drill.id })}
+                  onPress={() => navigation.navigate('RecordUpload', { defaultDrill: drill.id, userToken: effectiveToken })}
                 >
                   <Ionicons name="videocam" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
                   <Text style={styles.drillUploadBtnText}>Record</Text>
@@ -467,7 +468,7 @@ export default function PlayerDashboardView({
               </Text>
               <TouchableOpacity
                 style={styles.emptyStateAction}
-                onPress={() => navigation.navigate('RecordUpload')}
+                onPress={() => navigation.navigate('RecordUpload', { userToken: effectiveToken })}
               >
                 <Text style={styles.emptyStateActionText}>Upload Drill</Text>
               </TouchableOpacity>

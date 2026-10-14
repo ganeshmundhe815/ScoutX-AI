@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BASE_API_URL } from '../services/apiConfig';
+import { BASE_API_URL, getStoredAuthToken } from '../services/apiConfig';
 import { COLORS, SPACING, RADIUS, SHADOWS } from '../constants/theme';
 
 const DRILL_CONFIG = {
@@ -59,10 +59,16 @@ export default function RecordUploadScreen({ route, navigation }) {
   const { initialDrill = 'dribbling', preselectedDrill, defaultDrill, userToken } = route.params || {};
   const [selectedDrill, setSelectedDrill] = useState(defaultDrill || preselectedDrill || initialDrill);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [processingState, setProcessingState] = useState('idle'); // 'idle', 'processing', 'completed'
+  const [processingState, setProcessingState] = useState('idle'); // 'idle', 'processing', 'completed', 'error'
   const [activeStep, setActiveStep] = useState(1);
   const [assessmentResult, setAssessmentResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isAuthError, setIsAuthError] = useState(false);
+
+  // Helper to reliably resolve the current athlete JWT token from route params or persistent local storage
+  const resolveToken = () => {
+    return userToken || route.params?.userToken || getStoredAuthToken();
+  };
 
   const currentConfig = DRILL_CONFIG[selectedDrill] || DRILL_CONFIG.dribbling;
 
@@ -105,7 +111,17 @@ export default function RecordUploadScreen({ route, navigation }) {
       return;
     }
 
+    const effectiveToken = resolveToken();
+    if (!effectiveToken) {
+      setIsAuthError(true);
+      setErrorMessage('Access denied: No authentication token provided. Please sign in to your athlete account to analyze your video drill.');
+      setProcessingState('error');
+      return;
+    }
+
     setProcessingState('processing');
+    setIsAuthError(false);
+    setErrorMessage('');
     setActiveStep(1);
 
     const stepInterval = setInterval(() => {
@@ -120,34 +136,61 @@ export default function RecordUploadScreen({ route, navigation }) {
         formData.append('drillType', selectedDrill);
       }
 
+      let res = null;
       let resData = null;
+
       if (formData) {
-        const res = await fetch(`${BASE_API_URL}/assessments/analyze`, {
+        // Multipart FormData: DO NOT set manual Content-Type header so the runtime auto-generates the boundary.
+        // Attach the Authorization Bearer header to satisfy backend protect middleware.
+        res = await fetch(`${BASE_API_URL}/assessments/analyze`, {
           method: 'POST',
           headers: {
-            ...(userToken && { Authorization: `Bearer ${userToken}` }),
+            Authorization: `Bearer ${effectiveToken}`,
           },
           body: formData,
         });
-        resData = await res.json();
+        resData = await res.json().catch(() => null);
       } else {
-        const res = await fetch(`${BASE_API_URL}/assessments/demo-sample`, {
+        res = await fetch(`${BASE_API_URL}/assessments/demo-sample`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(userToken && { Authorization: `Bearer ${userToken}` }),
+            Authorization: `Bearer ${effectiveToken}`,
           },
           body: JSON.stringify({ drillType: selectedDrill }),
         });
-        resData = await res.json();
+        resData = await res.json().catch(() => null);
       }
 
       clearInterval(stepInterval);
+
+      // Explicitly handle 401 Unauthorized (missing, invalid, or expired JWT)
+      if (res && res.status === 401) {
+        setIsAuthError(true);
+        setErrorMessage(
+          resData?.message ||
+            'Access denied: Invalid or expired authentication token. Please sign in again.'
+        );
+        setProcessingState('error');
+        return;
+      }
+
+      // Explicitly handle 403 Forbidden (wrong role)
+      if (res && res.status === 403) {
+        setIsAuthError(true);
+        setErrorMessage(
+          resData?.message ||
+            'Forbidden: Player access required for video drill assessments.'
+        );
+        setProcessingState('error');
+        return;
+      }
 
       if (resData && (resData.status === 'success' || (resData.data && !resData.data.error))) {
         setAssessmentResult(resData.data || resData);
         setProcessingState('completed');
       } else {
+        setIsAuthError(false);
         throw new Error(
           resData?.message ||
             'AI video analysis could not be completed. Please ensure the Python Computer Vision service is running.'
@@ -155,6 +198,7 @@ export default function RecordUploadScreen({ route, navigation }) {
       }
     } catch (err) {
       clearInterval(stepInterval);
+      setIsAuthError(false);
       setErrorMessage(
         err.message ||
           'AI video analysis service is currently unavailable. Real computer vision evaluation could not be completed.'
@@ -169,6 +213,7 @@ export default function RecordUploadScreen({ route, navigation }) {
     setAssessmentResult(null);
     setActiveStep(1);
     setErrorMessage('');
+    setIsAuthError(false);
   };
 
   return (
@@ -179,7 +224,10 @@ export default function RecordUploadScreen({ route, navigation }) {
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.navigate('Home')}
+          onPress={() => {
+            const token = resolveToken();
+            navigation.navigate('Home', token ? { userToken: token } : undefined);
+          }}
         >
           <Ionicons name="arrow-back" size={18} color={COLORS.textPrimary} style={{ marginRight: 6 }} />
           <Text style={styles.backButtonText}>Back to Dashboard</Text>
@@ -313,13 +361,31 @@ export default function RecordUploadScreen({ route, navigation }) {
                   </View>
                 )}
 
-                {/* Error Banner when AI service is unavailable */}
+                {/* Error Banner when AI service is unavailable or Authentication is required */}
                 {processingState === 'error' && (
-                  <View style={styles.errorBanner}>
-                    <Ionicons name="alert-circle" size={22} color="#DC2626" style={{ marginRight: 10 }} />
+                  <View style={[styles.errorBanner, isAuthError && styles.authErrorBanner]}>
+                    <Ionicons
+                      name={isAuthError ? 'lock-closed' : 'alert-circle'}
+                      size={22}
+                      color={isAuthError ? '#D97706' : '#DC2626'}
+                      style={{ marginRight: 10, marginTop: 2 }}
+                    />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.errorBannerTitle}>AI Assessment Unavailable</Text>
-                      <Text style={styles.errorBannerText}>{errorMessage}</Text>
+                      <Text style={[styles.errorBannerTitle, isAuthError && styles.authErrorBannerTitle]}>
+                        {isAuthError ? 'Authentication Required' : 'AI Assessment Unavailable'}
+                      </Text>
+                      <Text style={[styles.errorBannerText, isAuthError && styles.authErrorBannerText]}>
+                        {errorMessage}
+                      </Text>
+                      {isAuthError && (
+                        <TouchableOpacity
+                          style={styles.authLoginBtn}
+                          onPress={() => navigation.navigate('Login')}
+                        >
+                          <Ionicons name="log-in-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.authLoginBtnText}>Sign In / Switch Account</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
                 )}
@@ -426,7 +492,10 @@ export default function RecordUploadScreen({ route, navigation }) {
 
                 <TouchableOpacity
                   style={styles.dashboardReturnBtn}
-                  onPress={() => navigation.navigate('Home')}
+                  onPress={() => {
+                    const token = resolveToken();
+                    navigation.navigate('Home', token ? { userToken: token } : undefined);
+                  }}
                 >
                   <Text style={styles.dashboardReturnText}>Return to Dashboard</Text>
                 </TouchableOpacity>
@@ -901,5 +970,30 @@ const styles = StyleSheet.create({
     color: '#B91C1C',
     marginTop: 2,
     lineHeight: 18,
+  },
+  authErrorBanner: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FCD34D',
+  },
+  authErrorBannerTitle: {
+    color: '#B45309',
+  },
+  authErrorBannerText: {
+    color: '#92400E',
+  },
+  authLoginBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.xs,
+    marginTop: 10,
+  },
+  authLoginBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });
