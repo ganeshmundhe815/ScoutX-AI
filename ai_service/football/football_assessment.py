@@ -22,7 +22,7 @@ from utils.scoring import calculate_overall_football_score
 
 TARGET_WIDTH = 640
 TARGET_HEIGHT = 360
-MAX_ANALYSIS_FRAMES = 150
+MAX_ANALYSIS_FRAMES = 75  # Target 60-75 keyframes for rapid CPU execution under 8 seconds
 
 # Global Singletons
 _GLOBAL_POSE_DETECTOR = None
@@ -55,10 +55,10 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
     """
     Standardized Football AI Computer Vision Pipeline:
     - Pre-flight video quality and lighting validation
-    - Multi-modal detection (MediaPipe 33 joints + YOLO ball/athlete)
+    - Multi-modal detection (MediaPipe 33 joints + YOLO ball/athlete with imgsz=320)
     - Temporal Kalman trajectory tracking
     - Biomechanical sports science metrics computation
-    - Generates fully annotated video and structured AI Assessment JSON
+    - Generates fully annotated video and structured AI Assessment JSON with millisecond latency telemetry
     """
     print("================================================================")
     print(f"⚽ ScoutX AI - Technical Performance Analysis: [{drill_type.upper()}]")
@@ -84,24 +84,32 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
     fps = int(video_props["fps"]) if (video_props["fps"] > 0 and video_props["fps"] < 120) else 30
     total_raw_frames = video_props["totalFrames"]
 
+    # Frame sampling stride
+    frame_stride = 1
+    if not is_live_cam and total_raw_frames > MAX_ANALYSIS_FRAMES:
+        frame_stride = max(1, int(total_raw_frames / MAX_ANALYSIS_FRAMES))
+
+    effective_fps = max(1.0, float(fps) / float(frame_stride))
+
     if not output_video:
         output_video = f"output_football_{drill_type}.mp4"
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_video, fourcc, min(fps, 30), (TARGET_WIDTH, TARGET_HEIGHT))
+    out_fps = max(5, int(fps / frame_stride))
+    out = cv2.VideoWriter(output_video, fourcc, out_fps, (TARGET_WIDTH, TARGET_HEIGHT))
 
-    # 2. Initialize Detectors & Analyzers
+    # 2. Initialize Detectors & Analyzers (Pass effective_fps so duration & debouncing match real drill time)
     pose_detector = get_pose_detector()
     object_detector = get_object_detector()
 
     if drill_type == "dribbling":
-        analyzer = DribblingAnalyzer(fps=min(fps, 30), preferred_foot=preferred_foot)
+        analyzer = DribblingAnalyzer(fps=effective_fps, preferred_foot=preferred_foot)
     elif drill_type == "shooting":
-        analyzer = ShootingAnalyzer(fps=min(fps, 30), preferred_foot=preferred_foot)
+        analyzer = ShootingAnalyzer(fps=effective_fps, preferred_foot=preferred_foot)
     elif drill_type == "ball_control":
-        analyzer = BallControlAnalyzer(fps=min(fps, 30), preferred_foot=preferred_foot)
+        analyzer = BallControlAnalyzer(fps=effective_fps, preferred_foot=preferred_foot)
     else:
-        analyzer = DribblingAnalyzer(fps=min(fps, 30), preferred_foot=preferred_foot)
+        analyzer = DribblingAnalyzer(fps=effective_fps, preferred_foot=preferred_foot)
 
     frame_idx = 0
     analyzed_count = 0
@@ -115,41 +123,53 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
 
     frame_qualities = []
     ball_trail = []
-    start_time = time.time()
 
-    # Frame sampling stride
-    frame_stride = 1
-    if not is_live_cam and total_raw_frames > MAX_ANALYSIS_FRAMES:
-        frame_stride = max(1, int(total_raw_frames / MAX_ANALYSIS_FRAMES))
+    # Telemetry Latency Clocks
+    t_decode_total = 0.0
+    t_pose_total = 0.0
+    t_yolo_total = 0.0
+    t_bio_total = 0.0
+    t_write_total = 0.0
+    start_time = time.time()
 
     try:
         while True:
-            success, raw_frame = cap.read()
-            if not success or raw_frame is None:
-                break
-
             frame_idx += 1
 
             if not is_live_cam and (frame_idx % frame_stride != 0):
+                # Fast forward without pixel decompression
+                if not cap.grab():
+                    break
                 continue
 
-            analyzed_count += 1
+            t_d0 = time.time()
+            success, raw_frame = cap.read()
+            if not success or raw_frame is None:
+                break
             frame = cv2.resize(raw_frame, (TARGET_WIDTH, TARGET_HEIGHT), interpolation=cv2.INTER_AREA)
+            t_decode_total += (time.time() - t_d0)
+
+            analyzed_count += 1
 
             # Measure frame lighting & blur quality
             if analyzed_count % 10 == 0:
                 frame_qualities.append(validator.compute_frame_quality(frame))
 
             # 3. Detect 33 Pose Landmarks (MediaPipe)
+            t_p0 = time.time()
             result, annotated_frame = pose_detector.find_pose(frame, draw=True)
             landmarks = pose_detector.get_landmarks(frame, result)
+            t_pose_total += (time.time() - t_p0)
 
             if landmarks and len(landmarks) >= 33:
                 player_detected_count += 1
                 player_conf_sum += 0.92
 
-            # 4. Detect Ball, Athlete, and Goal Structure (YOLO + CV)
+            # 4. Detect Ball, Athlete, and Goal Structure (YOLO imgsz=320 + CV)
+            t_y0 = time.time()
             objs = object_detector.detect_objects(frame, frame_idx=analyzed_count)
+            t_yolo_total += (time.time() - t_y0)
+
             ball_data = objs['ball']
             player_data = objs['player']
             goal_data = objs['goal']
@@ -164,14 +184,17 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
                 goal_status_str = goal_data.get('status', 'Goal structure detected')
 
             # 5. Process Drill-Specific Biomechanics
+            t_b0 = time.time()
             if drill_type == "dribbling":
                 realtime_stats = analyzer.process_frame(landmarks, ball_data, frame.shape)
             elif drill_type == "shooting":
                 realtime_stats = analyzer.process_frame(landmarks, ball_data, goal_data, frame.shape)
             elif drill_type == "ball_control":
                 realtime_stats = analyzer.process_frame(landmarks, ball_data, frame.shape)
+            t_bio_total += (time.time() - t_b0)
 
             # 6. Draw Visual HUD & Overlays on Annotated Video
+            t_w0 = time.time()
             if ball_data and ball_data.get('detected'):
                 bx, by = ball_data['center']
                 r = ball_data.get('radius', 10)
@@ -200,17 +223,17 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
 
             if drill_type == "dribbling":
                 t = realtime_stats.get('ball_touches', 0)
-                c = realtime_stats.get('control_consistency', 80)
+                c = realtime_stats.get('control_consistency') or 0
                 d = realtime_stats.get('duration_sec', 0.0)
                 cv2.putText(annotated_frame, f"TOUCHES: {t} | Consistency: {c}% | Time: {d}s",
                             (20, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (16, 185, 129), 2)
-                cv2.putText(annotated_frame, f"Active Foot: {realtime_stats.get('active_foot', 'Right')} | Cuts: {realtime_stats.get('direction_changes', 0)}",
+                cv2.putText(annotated_frame, f"Active Foot: {realtime_stats.get('active_foot', 'None')} | Cuts: {realtime_stats.get('direction_changes', 0)}",
                             (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1)
 
             elif drill_type == "shooting":
                 s = realtime_stats.get('shots_taken', 0)
-                a = realtime_stats.get('accuracy_percentage', 70)
-                p = realtime_stats.get('estimated_power', 75)
+                a = realtime_stats.get('accuracy_percentage') or 0
+                p = realtime_stats.get('estimated_power') or 0
                 cv2.putText(annotated_frame, f"SHOTS: {s} | Accuracy: {a}% | Est. Power: {p}",
                             (20, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (59, 130, 246), 2)
                 cv2.putText(annotated_frame, f"Target: {realtime_stats.get('last_target', 'Forward')}",
@@ -222,13 +245,15 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
                 rp = realtime_stats.get('right_percentage', 0.0)
                 cv2.putText(annotated_frame, f"TOUCHES: {t} | Left: {lp}% | Right: {rp}%",
                             (20, 56), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (245, 158, 11), 2)
-                cv2.putText(annotated_frame, f"Rebound Cushion: {realtime_stats.get('rebound_control', 85)}%",
+                r_score = realtime_stats.get('rebound_control') or 0
+                cv2.putText(annotated_frame, f"Rebound Cushion: {r_score}%",
                             (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1)
 
             cv2.putText(annotated_frame, ">> MediaPipe 33-Joints + YOLO Ball Tracking",
                         (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (16, 185, 129), 1)
 
             out.write(annotated_frame)
+            t_write_total += (time.time() - t_w0)
 
             if show_display:
                 cv2.imshow(f"ScoutX Football - {drill_type.upper()}", annotated_frame)
@@ -293,7 +318,7 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
                 "status": goal_status_str,
             }
         },
-        "score": final_report.get("score", 75.0),
+        "score": final_report.get("score", 50.0),
         "rawMetrics": final_report.get("rawMetrics", {}),
         "footUsage": final_report.get("footUsage", {}),
         "confidence": final_report.get("confidence", 0.85),
@@ -301,9 +326,24 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
         "feedback": final_report.get("feedback", []),
         "warnings": quality_report.get("warnings", []),
         "processingTimeSec": elapsed_time,
+        "latencyBreakdown": {
+            "totalSeconds": elapsed_time,
+            "decodingMs": round(t_decode_total * 1000, 1),
+            "poseInferenceMs": round(t_pose_total * 1000, 1),
+            "yoloInferenceMs": round(t_yolo_total * 1000, 1),
+            "biomechanicsMs": round(t_bio_total * 1000, 1),
+            "videoEncodingMs": round(t_write_total * 1000, 1),
+            "framesAnalyzed": analyzed_count,
+            "rawFrames": total_raw_frames,
+            "frameStride": frame_stride,
+            "effectiveFps": round(effective_fps, 1),
+        },
         "annotatedVideoPath": os.path.abspath(output_video),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
+
+    if "limitations" in final_report:
+        master_result["limitations"] = final_report["limitations"]
 
     # Populate drill specific result nodes
     if drill_type == "dribbling":
@@ -332,3 +372,4 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
     print("================================================================")
 
     return master_result
+

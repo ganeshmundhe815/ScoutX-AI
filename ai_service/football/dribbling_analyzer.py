@@ -13,8 +13,8 @@ class DribblingAnalyzer:
     - Returns separate Raw Metrics and Documented Performance Score
     """
     def __init__(self, fps=30, preferred_foot="Right"):
-        self.fps = max(1, fps)
-        self.foot_analyzer = FootAnalyzer(declared_preferred_foot=preferred_foot)
+        self.fps = max(1.0, float(fps))
+        self.foot_analyzer = FootAnalyzer(fps=self.fps, declared_preferred_foot=preferred_foot)
         self.frame_count = 0
         self.ball_detected_frames = 0
         self.ball_positions = []
@@ -56,18 +56,18 @@ class DribblingAnalyzer:
                     if ratio > 2.2:
                         self.ball_loss_events += 1
 
-            # Directional Cut Trigonometry
+            # Directional Cut Trigonometry (enforce > 12px displacement to reject sensor jitter)
             if len(self.ball_positions) >= 6:
                 v_curr = np.array(self.ball_positions[-1]) - np.array(self.ball_positions[-3])
                 v_prev = np.array(self.ball_positions[-3]) - np.array(self.ball_positions[-6])
 
-                mag_c = np.linalg.norm(v_curr)
-                mag_p = np.linalg.norm(v_prev)
+                mag_c = float(np.linalg.norm(v_curr))
+                mag_p = float(np.linalg.norm(v_prev))
 
-                if mag_c > 5.0 and mag_p > 5.0:
+                if mag_c > 12.0 and mag_p > 12.0:
                     cos_t = np.clip(np.dot(v_curr, v_prev) / (mag_c * mag_p), -1.0, 1.0)
-                    angle = np.degrees(np.arccos(cos_t))
-                    if angle > 38.0:
+                    angle = float(np.degrees(np.arccos(cos_t)))
+                    if 35.0 < angle < 155.0:
                         self.direction_changes += 1
                         self.ball_positions = self.ball_positions[-2:]
 
@@ -75,8 +75,12 @@ class DribblingAnalyzer:
 
     def _format_realtime_data(self, foot_info):
         dur = round(self.frame_count / float(self.fps), 1)
-        avg_r = float(np.mean(self.proximity_ratios)) if self.proximity_ratios else 0.55
-        consistency = max(50.0, min(98.0, 100.0 - (max(0, avg_r - 0.35) * 60.0)))
+        if self.proximity_ratios:
+            avg_r = float(np.mean(self.proximity_ratios))
+            consistency = max(50.0, min(98.0, 100.0 - (max(0, avg_r - 0.35) * 60.0)))
+            consistency_val = round(consistency, 1)
+        else:
+            consistency_val = None
 
         return {
             'drill': 'dribbling',
@@ -85,7 +89,7 @@ class DribblingAnalyzer:
             'left_touches': foot_info['left_touches'],
             'right_touches': foot_info['right_touches'],
             'active_foot': foot_info['active_foot'],
-            'control_consistency': round(consistency, 1),
+            'control_consistency': consistency_val,
             'direction_changes': self.direction_changes,
             'ball_losses': self.ball_loss_events,
             'status': 'Measuring close control & slalom turns...',
@@ -96,19 +100,31 @@ class DribblingAnalyzer:
         touches = self.foot_analyzer.total_touches
         summary = self.foot_analyzer._get_summary()
 
-        avg_ratio = float(np.mean(self.proximity_ratios)) if self.proximity_ratios else 0.55
-        consistency = max(55.0, min(97.0, 100.0 - (max(0, avg_ratio - 0.35) * 60.0)))
+        has_ball_data = bool(self.proximity_ratios and self.ball_detected_frames >= 3)
+        if has_ball_data:
+            avg_ratio = float(np.mean(self.proximity_ratios))
+            consistency = max(50.0, min(97.0, 100.0 - (max(0, avg_ratio - 0.35) * 60.0)))
+            consistency_round = round(consistency, 1)
+            avg_ratio_round = round(avg_ratio, 2)
+        else:
+            avg_ratio = 0.0
+            avg_ratio_round = None
+            consistency = 0.0
+            consistency_round = None
 
         # Calculate documented score
         score = calculate_dribbling_score(
             duration_sec=duration_sec,
             ball_touches=touches,
-            control_consistency=consistency,
+            control_consistency=consistency if has_ball_data else 50.0,
             direction_changes=self.direction_changes
         )
 
         ball_vis_pct = (self.ball_detected_frames / float(max(1, self.frame_count))) * 100.0
-        confidence = round(min(0.96, max(0.50, (ball_vis_pct / 100.0) * 0.90 + (0.06 if touches > 5 else 0.0))), 2)
+        if has_ball_data:
+            confidence = round(min(0.96, max(0.50, (ball_vis_pct / 100.0) * 0.90 + (0.06 if touches > 5 else 0.0))), 2)
+        else:
+            confidence = 0.25
 
         raw_metrics = {
             'durationSec': duration_sec,
@@ -117,12 +133,14 @@ class DribblingAnalyzer:
             'rightFootTouches': self.foot_analyzer.right_touches,
             'directionChanges': self.direction_changes,
             'ballLossEvents': self.ball_loss_events,
-            'avgProximityRatio': round(avg_ratio, 2),
-            'controlConsistencyPercentage': round(consistency, 1),
+            'avgProximityRatio': avg_ratio_round,
+            'controlConsistencyPercentage': consistency_round,
         }
 
         feedback = []
-        if consistency >= 85.0:
+        if not has_ball_data:
+            feedback.append("Ball tracking was insufficient for close-control analysis. Ensure ball is clearly visible against pitch.")
+        elif consistency_round and consistency_round >= 85.0:
             feedback.append("Elite Close Control: Ball maintained within close stride radius throughout the drill.")
         else:
             feedback.append("Close Control Tip: Keep touches lighter when navigating through cones.")
@@ -130,7 +148,9 @@ class DribblingAnalyzer:
         if self.direction_changes >= 4:
             feedback.append(f"Sharp Directional Agility: Completed {self.direction_changes} high-angle directional cuts.")
 
-        if summary['left_percentage'] >= 25.0 and summary['right_percentage'] >= 25.0:
+        if summary['observedFootUsage'] == "Not observed":
+            feedback.append("Foot contacts could not be verified in this video angle.")
+        elif summary['left_percentage'] >= 25.0 and summary['right_percentage'] >= 25.0:
             feedback.append(f"Bilateral Foot Balance: {summary['left_percentage']}% Left / {summary['right_percentage']}% Right touch distribution.")
         else:
             feedback.append(f"Foot Bias Noted: Observed {summary['observedFootUsage']}.")
@@ -148,3 +168,4 @@ class DribblingAnalyzer:
             },
             'feedback': feedback,
         }
+

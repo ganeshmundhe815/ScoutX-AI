@@ -14,8 +14,12 @@ const mongoose = require('mongoose');
 const uploadAndAnalyzeDrill = async (req, res, next) => {
   try {
     const drillType = req.body.drillType || req.body.drill_type || 'dribbling';
+    const preferredFoot = req.body.preferredFoot || req.user?.preferredFoot || 'Right';
     const videoFile = req.file;
     const videoPath = videoFile ? videoFile.path : '';
+    const relativeVideoUrl = videoFile
+      ? `/uploads/${videoFile.filename}`
+      : `/uploads/football_${drillType}_clip.mp4`;
     const playerName = req.user ? req.user.name : 'Football Player';
 
     console.log(
@@ -25,18 +29,29 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
     );
 
     // 1. P3 — FOOTBALL AI ANALYSIS: Send video to Python AI Computer Vision Engine (Port 8000)
-    const aiResult = await sendVideoToAI(videoPath, drillType);
+    const aiResult = await sendVideoToAI(videoPath, drillType, preferredFoot);
 
     if (!aiResult || aiResult.status === 'unavailable' || aiResult.success === false) {
-      return res.status(503).json({
+      let statusCode = 503;
+      if (aiResult?.status === 'timeout') {
+        statusCode = 504; // Gateway Timeout
+      } else if (aiResult?.status === 'invalid_format' || aiResult?.status === 'invalid_input') {
+        statusCode = 400; // Bad Request
+      } else if (aiResult?.status === 'unreachable') {
+        statusCode = 503; // Service Unavailable
+      }
+
+      return res.status(statusCode).json({
         status: 'fail',
+        serviceStatus: aiResult?.status || 'unavailable',
         message:
           aiResult?.message ||
           'AI Computer Vision analysis service is unavailable. Real video assessment could not be processed.',
-        serviceStatus: 'unavailable',
+        errorCode: aiResult?.errorCode || null,
         drillType,
       });
     }
+
 
     // 2. P4 — SCORING & REPORTS: Calculate ER Diagram METRIC (1:N) & SCORE (1:1) entities
     const {
@@ -77,8 +92,8 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
         drill_type: drillType,
         status: 'completed',
         overallScore: Math.round(overallScore),
-        videoUrl: videoPath || `/uploads/football_${drillType}_clip.mp4`,
-        video_url: videoPath || `/uploads/football_${drillType}_clip.mp4`,
+        videoUrl: relativeVideoUrl,
+        video_url: relativeVideoUrl,
         annotatedVideoUrl: aiResult.processedVideoPath || '',
         score: scoreEntity,
         metricsList: metricsEntities,
@@ -89,6 +104,7 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
         feedback: feedbackList,
         confidenceScore: aiResult.aiConfidenceScore || 0.96,
       });
+
 
       // Persist standalone ER Diagram SCORE (1:1) & METRIC (1:N) documents
       await persistScoreAndMetricsToDB(assessmentDoc._id, scoreEntity, metricsEntities);
@@ -176,8 +192,9 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
         athlete_id: playerProfileDoc.athlete_id || playerProfileDoc.playerId,
         drillType,
         drill_type: drillType,
-        videoUrl: videoPath || `/uploads/football_${drillType}_clip.mp4`,
-        video_url: videoPath || `/uploads/football_${drillType}_clip.mp4`,
+        videoUrl: relativeVideoUrl,
+        video_url: relativeVideoUrl,
+        annotatedVideoUrl: aiResult.processedVideoPath || '',
         status: 'completed',
         overallScore: Math.round(overallScore),
         score: scoreWithFk,
@@ -190,6 +207,7 @@ const uploadAndAnalyzeDrill = async (req, res, next) => {
         confidenceScore: aiResult.aiConfidenceScore || 0.96,
         createdAt: new Date(),
       };
+
       embeddedStore.footballAssessments.unshift(assessmentDoc);
     }
 

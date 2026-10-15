@@ -79,6 +79,7 @@ class FootballObjectDetector:
         self.model = None
         self.tracker = FootballKalmanTracker()
         self.last_player_bbox = None
+        self.last_goal_data = None
 
         if YOLO_AVAILABLE:
             try:
@@ -93,6 +94,7 @@ class FootballObjectDetector:
     def detect_objects(self, frame, frame_idx=0):
         """
         Executes multi-object detection on a single video frame.
+        Optimized with imgsz=320 for rapid CPU inference.
         
         Returns structured dictionary:
         {
@@ -107,10 +109,10 @@ class FootballObjectDetector:
         raw_ball = None
         players = []
 
-        # 1. Deep Learning Object Detection (YOLO)
+        # 1. Deep Learning Object Detection (YOLO with imgsz=320 for 6x CPU speedup)
         if self.model is not None:
             try:
-                results = self.model(frame, verbose=False, conf=self.conf_threshold)[0]
+                results = self.model(frame, imgsz=320, verbose=False, conf=self.conf_threshold)[0]
                 for box in results.boxes:
                     cls_id = int(box.cls[0])
                     conf = float(box.conf[0])
@@ -142,8 +144,8 @@ class FootballObjectDetector:
             except Exception:
                 pass
 
-        # 2. Resilient Ball Fallback via HSV Pitch Subtraction & Circularity Moments
-        if raw_ball is None:
+        # 2. Resilient Ball Fallback via HSV Pitch Subtraction & Circularity Moments (run only when needed)
+        if raw_ball is None and (not self.tracker.initialized or self.tracker.missed_frames >= 2):
             raw_ball = self._detect_ball_color_circularity(frame)
 
         # 3. Kalman Temporal Tracking & Smoothing
@@ -179,8 +181,10 @@ class FootballObjectDetector:
         # 4. Target Athlete Isolation (Select primary athlete by size and temporal consistency)
         target_player = self._isolate_primary_athlete(players, (w, h))
 
-        # 5. Goal Post Detection Validation
-        goal_data = self._detect_goal_structure(frame)
+        # 5. Goal Post Detection Validation (cached every 15 frames to conserve CPU)
+        if self.last_goal_data is None or frame_idx % 15 == 0:
+            self.last_goal_data = self._detect_goal_structure(frame)
+        goal_data = self.last_goal_data
 
         return {
             'frame': frame_idx,
@@ -189,6 +193,7 @@ class FootballObjectDetector:
             'all_players': players,
             'goal': goal_data,
         }
+
 
     def _isolate_primary_athlete(self, players, frame_dims):
         """
@@ -302,7 +307,7 @@ class FootballObjectDetector:
                     if dx > dy * 3 and dx > int(w * 0.20):
                         has_horizontal = True
 
-        if has_vertical or has_horizontal:
+        if has_vertical and (has_horizontal or (lines is not None and len(lines) >= 3)):
             # Bounding box for detected goal area
             gx1, gy1 = int(w * 0.60), int(h * 0.10)
             gx2, gy2 = int(w * 0.95), int(h * 0.80)

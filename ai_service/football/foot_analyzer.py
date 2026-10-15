@@ -9,16 +9,19 @@ class FootAnalyzer:
     - Inflection detection to record exact physical strikes
     - Separates observedFootUsage from declaredPreferredFoot
     """
-    def __init__(self, declared_preferred_foot="Right"):
+    def __init__(self, fps=30, declared_preferred_foot="Right"):
+        self.fps = max(1.0, float(fps))
         self.declared_preferred_foot = declared_preferred_foot
         self.left_touches = 0
         self.right_touches = 0
         self.total_touches = 0
         self.prev_dist_left = 999.0
         self.prev_dist_right = 999.0
+        self.cooldown_limit = max(1, int(round(self.fps * 0.15)))  # ~0.15s refractory period
         self.cooldown_frames = 0
         self.valid_frame_count = 0
         self.touch_events = []
+
 
     def process_frame(self, landmarks, ball_data, frame_shape):
         if self.cooldown_frames > 0:
@@ -93,7 +96,7 @@ class FootAnalyzer:
                     'dist': round(min_dist, 1),
                     'frame': self.valid_frame_count,
                 })
-                self.cooldown_frames = 5  # Debounce ~0.16s
+                self.cooldown_frames = self.cooldown_limit
 
         self.prev_dist_left = dist_left
         self.prev_dist_right = dist_right
@@ -106,13 +109,15 @@ class FootAnalyzer:
         left_pct = round((self.left_touches / float(total)) * 100.0, 1) if self.total_touches > 0 else 0.0
         right_pct = round((self.right_touches / float(total)) * 100.0, 1) if self.total_touches > 0 else 0.0
 
-        observed_usage = "Both"
-        if right_pct > 65.0:
+        if self.total_touches == 0:
+            observed_usage = "Not observed"
+        elif right_pct > 65.0:
             observed_usage = "Right-Dominant"
         elif left_pct > 65.0:
             observed_usage = "Left-Dominant"
-        elif self.total_touches > 0:
+        else:
             observed_usage = "Bilateral / Two-Footed"
+
 
         return {
             'active_foot': active_foot,

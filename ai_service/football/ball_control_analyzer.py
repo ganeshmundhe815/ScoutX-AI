@@ -12,8 +12,8 @@ class BallControlAnalyzer:
     - Returns separate Raw Metrics and Documented Performance Score
     """
     def __init__(self, fps=30, preferred_foot="Right"):
-        self.fps = max(1, fps)
-        self.foot_analyzer = FootAnalyzer(declared_preferred_foot=preferred_foot)
+        self.fps = max(1.0, float(fps))
+        self.foot_analyzer = FootAnalyzer(fps=self.fps, declared_preferred_foot=preferred_foot)
         self.cushion_distances = []
         self.frame_count = 0
         self.ball_detected_frames = 0
@@ -46,8 +46,11 @@ class BallControlAnalyzer:
 
     def _format_realtime_data(self, foot_info):
         touches = foot_info['total_touches']
-        avg_dist = float(np.mean(self.cushion_distances)) if self.cushion_distances else 25.0
-        rebound_control = max(55.0, min(98.0, 100.0 - (avg_dist * 0.42)))
+        if self.cushion_distances:
+            avg_dist = float(np.mean(self.cushion_distances))
+            rebound_control = round(max(55.0, min(98.0, 100.0 - (avg_dist * 0.42))), 1)
+        else:
+            rebound_control = None
 
         return {
             'drill': 'ball_control',
@@ -56,7 +59,7 @@ class BallControlAnalyzer:
             'right_touches': foot_info['right_touches'],
             'left_percentage': foot_info['left_percentage'],
             'right_percentage': foot_info['right_percentage'],
-            'rebound_control': round(rebound_control, 1),
+            'rebound_control': rebound_control,
             'first_touch_px': self.first_touch_displacement,
             'status': "Measuring impact cushioning & juggling balance...",
         }
@@ -66,40 +69,50 @@ class BallControlAnalyzer:
         touches = self.foot_analyzer.total_touches
         summary = self.foot_analyzer._get_summary()
 
-        avg_dist = float(np.mean(self.cushion_distances)) if self.cushion_distances else 25.0
-        rebound_control = round(float(np.clip(100.0 - (avg_dist * 0.42), 55.0, 97.0)), 1)
-        consistency = round(float(np.clip(70.0 + (touches * 0.85), 60.0, 96.0)), 1)
+        if touches > 0:
+            avg_dist = float(np.mean(self.cushion_distances)) if self.cushion_distances else 25.0
+            rebound_control = round(float(np.clip(100.0 - (avg_dist * 0.42), 55.0, 97.0)), 1)
+            consistency = round(float(np.clip(60.0 + (touches * 1.5), 55.0, 98.0)), 1)
+            first_touch = self.first_touch_displacement or round(avg_dist, 1)
 
-        score = calculate_ball_control_score(
-            touches_count=touches,
-            control_consistency=consistency,
-            rebound_control_score=rebound_control,
-            duration_sec=duration_sec
-        )
-
-        ball_vis_pct = (self.ball_detected_frames / float(max(1, self.frame_count))) * 100.0
-        confidence = round(min(0.95, max(0.50, (ball_vis_pct / 100.0) * 0.90 + (0.05 if touches > 8 else 0.0))), 2)
+            score = calculate_ball_control_score(
+                touches_count=touches,
+                control_consistency=consistency,
+                rebound_control_score=rebound_control,
+                duration_sec=duration_sec
+            )
+            ball_vis_pct = (self.ball_detected_frames / float(max(1, self.frame_count))) * 100.0
+            confidence = round(min(0.95, max(0.50, (ball_vis_pct / 100.0) * 0.90 + (0.05 if touches > 8 else 0.0))), 2)
+        else:
+            rebound_control = None
+            consistency = None
+            first_touch = None
+            score = 50.0
+            confidence = 0.25
 
         raw_metrics = {
             'touchesCount': touches,
             'durationSec': duration_sec,
             'leftFootTouches': self.foot_analyzer.left_touches,
             'rightFootTouches': self.foot_analyzer.right_touches,
-            'firstTouchDisplacementPx': self.first_touch_displacement or round(avg_dist, 1),
+            'firstTouchDisplacementPx': first_touch,
             'reboundControlPercentage': rebound_control,
             'controlConsistencyPercentage': consistency,
         }
 
         feedback = []
-        if rebound_control >= 85.0:
-            feedback.append("Soft First Touch Cushion: Exceptional momentum absorption upon foot arrival.")
+        if touches == 0:
+            feedback.append("No controlled ball contacts were detected in this video. Ensure ball and athlete's feet are visible.")
         else:
-            feedback.append("Cushioning Tip: Relax ankle upon contact to kill excess rebound bounce.")
+            if rebound_control and rebound_control >= 85.0:
+                feedback.append("Soft First Touch Cushion: Exceptional momentum absorption upon foot arrival.")
+            else:
+                feedback.append("Cushioning Tip: Relax ankle upon contact to absorb excess rebound bounce.")
 
-        if summary['left_percentage'] >= 25.0 and summary['right_percentage'] >= 25.0:
-            feedback.append(f"Two-Footed Equilibrium: {summary['left_percentage']}% Left / {summary['right_percentage']}% Right touch balance.")
-        else:
-            feedback.append(f"Observed Usage: {summary['observedFootUsage']}.")
+            if summary['left_percentage'] >= 25.0 and summary['right_percentage'] >= 25.0:
+                feedback.append(f"Two-Footed Equilibrium: {summary['left_percentage']}% Left / {summary['right_percentage']}% Right touch balance.")
+            else:
+                feedback.append(f"Observed Usage: {summary['observedFootUsage']}.")
 
         return {
             'drillType': 'ball_control',
@@ -114,3 +127,4 @@ class BallControlAnalyzer:
             },
             'feedback': feedback,
         }
+

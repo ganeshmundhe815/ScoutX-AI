@@ -27,64 +27,75 @@ const calculateMetricsAndScores = (aiResult = {}, drillType = 'dribbling') => {
       86.5
   );
 
-  // 1. Drill-Specific Breakdown
+  // 1. Drill-Specific Breakdown (preserves real 0 measurements without fabricated defaults)
   const dribblingData = {
-    score: Math.round(drillType === 'dribbling' ? baseDrillScore : rawMetrics.dribbling?.score || 85),
-    durationSec: Number(rawMetrics.durationSec || 10.8),
-    ballTouches: Number(rawMetrics.ballTouches || rawMetrics.touchesCount || 15),
-    controlConsistency: Number(rawMetrics.controlConsistency || 89.0),
-    avgPlayerBallDistance: Number(rawMetrics.avgPlayerBallDistance || 0.38),
-    directionChanges: Number(rawMetrics.directionChanges || 5),
+    score: Math.round(drillType === 'dribbling' ? baseDrillScore : (rawMetrics.dribbling?.score ?? 50)),
+    durationSec: Number(rawMetrics.durationSec ?? 0.0),
+    ballTouches: Number(rawMetrics.ballTouches ?? rawMetrics.touchesCount ?? 0),
+    controlConsistency: Number(rawMetrics.controlConsistency ?? 0.0),
+    avgPlayerBallDistance: Number(rawMetrics.avgPlayerBallDistance ?? rawMetrics.avgProximityRatio ?? 0.0),
+    directionChanges: Number(rawMetrics.directionChanges ?? 0),
   };
 
   const shootingData = {
-    score: Math.round(drillType === 'shooting' ? baseDrillScore : rawMetrics.shooting?.score || 84),
-    shotsCount: Number(rawMetrics.shotsCount || 5),
-    onTargetAccuracy: Number(rawMetrics.onTargetAccuracy || 82.0),
-    goalsDetected: Number(rawMetrics.goalsDetected || 4),
-    estimatedPower: Number(rawMetrics.estimatedPower || 85.0),
-    shotDirection: rawMetrics.shotDirection || 'Top-Right Corner',
+    score: Math.round(drillType === 'shooting' ? baseDrillScore : (rawMetrics.shooting?.score ?? 50)),
+    shotsCount: Number(rawMetrics.shotsCount ?? rawMetrics.attemptsCount ?? 0),
+    onTargetAccuracy: Number(rawMetrics.onTargetAccuracy ?? 0.0),
+    goalsDetected: Number(rawMetrics.goalsDetected ?? 0),
+    estimatedPower: Number(rawMetrics.estimatedPower ?? 0.0),
+    shotDirection: rawMetrics.shotDirection || 'None detected',
   };
 
   const ballControlData = {
-    score: Math.round(drillType === 'ball_control' ? baseDrillScore : rawMetrics.ballControl?.score || 86),
-    touchesCount: Number(rawMetrics.touchesCount || rawMetrics.ballTouches || 28),
-    playerBallDistance: Number(rawMetrics.playerBallDistance || 0.34),
-    controlConsistency: Number(rawMetrics.controlConsistency || 90.0),
-    reboundControlScore: Number(rawMetrics.reboundControlScore || 88.0),
+    score: Math.round(drillType === 'ball_control' ? baseDrillScore : (rawMetrics.ballControl?.score ?? 50)),
+    touchesCount: Number(rawMetrics.touchesCount ?? rawMetrics.ballTouches ?? 0),
+    playerBallDistance: Number(rawMetrics.playerBallDistance ?? 0.0),
+    controlConsistency: Number(rawMetrics.controlConsistency ?? 0.0),
+    reboundControlScore: Number(rawMetrics.reboundControlScore ?? 0.0),
   };
 
-  const leftPct = Number(rawMetrics.leftFootPercentage || (drillType === 'dribbling' ? 35.0 : 30.0));
-  const rightPct = Number(rawMetrics.rightFootPercentage || (100.0 - leftPct));
+  const leftPct = Number(rawMetrics.leftFootPercentage ?? 0.0);
+  const rightPct = Number(rawMetrics.rightFootPercentage ?? 0.0);
 
   const footUsageData = {
     leftFootPercentage: leftPct,
     rightFootPercentage: rightPct,
-    leftFootTouches:
-      rawMetrics.leftFootTouches || Math.round(dribblingData.ballTouches * (leftPct / 100)),
-    rightFootTouches:
-      rawMetrics.rightFootTouches ||
-      dribblingData.ballTouches - Math.round(dribblingData.ballTouches * (leftPct / 100)),
-    preferredFoot: rightPct >= leftPct ? 'Right' : 'Left',
+    leftFootTouches: Number(rawMetrics.leftFootTouches ?? 0),
+    rightFootTouches: Number(rawMetrics.rightFootTouches ?? 0),
+    preferredFoot: rawMetrics.declaredPreferredFoot || (rightPct >= leftPct ? 'Right' : 'Left'),
+    observedFootUsage: rawMetrics.observedFootUsage || 'Not observed',
   };
 
   // 2. Compute ER Diagram 1:1 SCORE Entity (technique, consistency, accuracy, endurance, overall)
   const technique = Math.min(
     99,
-    Math.round((dribblingData.score * 0.45 + ballControlData.reboundControlScore * 0.55) * 10) / 10
+    Math.round(
+      ((dribblingData.score > 0 ? dribblingData.score : baseDrillScore) * 0.45 +
+       (ballControlData.reboundControlScore > 0 ? ballControlData.reboundControlScore : baseDrillScore) * 0.55) *
+        10
+    ) / 10
   );
   const consistency = Math.min(
     99,
-    Math.round(dribblingData.controlConsistency * 10) / 10
+    Math.round(
+      (dribblingData.controlConsistency > 0 ? dribblingData.controlConsistency : baseDrillScore) * 10
+    ) / 10
   );
   const accuracy = Math.min(
     99,
-    Math.round((shootingData.onTargetAccuracy * 0.65 + baseDrillScore * 0.35) * 10) / 10
+    Math.round(
+      ((shootingData.onTargetAccuracy > 0 ? shootingData.onTargetAccuracy * 0.65 : 0) +
+        baseDrillScore * 0.35) *
+        10
+    ) / 10
   );
   const endurance = Math.min(
     99,
     Math.round(
-      Math.max(76, 82 + Math.min(15, (dribblingData.ballTouches / Math.max(5, dribblingData.durationSec)) * 6)) * 10
+      Math.max(
+        50,
+        Math.min(99, 65 + (dribblingData.ballTouches / Math.max(5, dribblingData.durationSec || 1)) * 8)
+      ) * 10
     ) / 10
   );
   const overall = Math.min(

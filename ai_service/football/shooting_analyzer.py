@@ -12,8 +12,8 @@ class ShootingAnalyzer:
     - Returns separate Raw Metrics and Documented Performance Score
     """
     def __init__(self, fps=30, preferred_foot="Right"):
-        self.fps = max(1, fps)
-        self.foot_analyzer = FootAnalyzer(declared_preferred_foot=preferred_foot)
+        self.fps = max(1.0, float(fps))
+        self.foot_analyzer = FootAnalyzer(fps=self.fps, declared_preferred_foot=preferred_foot)
         self.shots_count = 0
         self.on_target_count = 0
         self.goals_detected = 0
@@ -103,60 +103,69 @@ class ShootingAnalyzer:
 
     def _format_realtime_data(self):
         shots = max(1, self.shots_count)
-        acc = round((self.on_target_count / float(shots)) * 100.0, 1) if self.shots_count > 0 else 75.0
-        avg_norm_vel = float(np.mean(self.shot_velocities_normalized)) if self.shot_velocities_normalized else 30.0
-        est_power = max(50.0, min(96.0, 48.0 + (avg_norm_vel * 1.35)))
+        acc = round((self.on_target_count / float(shots)) * 100.0, 1) if self.shots_count > 0 else 0.0
+        avg_norm_vel = float(np.mean(self.shot_velocities_normalized)) if self.shot_velocities_normalized else 0.0
+        est_power = round(max(30.0, min(96.0, 40.0 + (avg_norm_vel * 1.35))), 1) if self.shot_velocities_normalized else 0.0
 
         return {
             'drill': 'shooting',
             'shots_taken': self.shots_count,
             'on_target': self.on_target_count,
             'goals_detected': self.goals_detected if self.goal_available else 'unavailable',
-            'accuracy_percentage': acc,
-            'estimated_power': round(est_power, 1),
+            'accuracy_percentage': acc if self.shots_count > 0 else None,
+            'estimated_power': est_power if self.shots_count > 0 else None,
             'last_target': self.shot_trajectories[-1] if self.shot_trajectories else "Ready to shoot",
             'status': "Tracking shot acceleration & trajectory...",
         }
 
     def finalize_assessment(self):
-        shots = max(1, self.shots_count)
-        acc = round((self.on_target_count / float(shots)) * 100.0, 1) if self.shots_count > 0 else 70.0
-        conversion = round((self.goals_detected / float(shots)) * 100.0, 1) if (self.goal_available and self.shots_count > 0) else None
-
-        avg_norm_vel = float(np.mean(self.shot_velocities_normalized)) if self.shot_velocities_normalized else 32.0
-        est_power_index = round(float(np.clip(50.0 + (avg_norm_vel * 1.35), 45.0, 96.0)), 1)
-
-        score = calculate_shooting_score(
-            on_target_accuracy=acc,
-            estimated_power=est_power_index,
-            goals_detected=self.goals_detected if self.goal_available else None,
-            shots_count=shots
-        )
-
-        confidence = round(0.88 if self.goal_available else 0.78, 2)
+        shots = self.shots_count
         summary = self.foot_analyzer._get_summary()
 
+        if shots > 0:
+            acc = round((self.on_target_count / float(shots)) * 100.0, 1)
+            conversion = round((self.goals_detected / float(shots)) * 100.0, 1) if self.goal_available else None
+            avg_norm_vel = float(np.mean(self.shot_velocities_normalized)) if self.shot_velocities_normalized else 25.0
+            est_power_index = round(float(np.clip(45.0 + (avg_norm_vel * 1.35), 35.0, 96.0)), 1)
+            score = calculate_shooting_score(
+                on_target_accuracy=acc,
+                estimated_power=est_power_index,
+                goals_detected=self.goals_detected if self.goal_available else None,
+                shots_count=shots
+            )
+            confidence = round(0.88 if self.goal_available else 0.78, 2)
+        else:
+            acc = None
+            conversion = None
+            est_power_index = None
+            score = 50.0
+            confidence = 0.30
+
         raw_metrics = {
-            'attemptsCount': self.shots_count,
+            'attemptsCount': shots,
             'onTargetCount': self.on_target_count,
             'goalsDetected': self.goals_detected if self.goal_available else None,
             'goalDetectionStatus': 'Goal structure detected' if self.goal_available else 'Goal structure unavailable',
             'onTargetAccuracyPercentage': acc,
             'conversionRatePercentage': conversion,
             'estimatedPowerIndex': est_power_index,
-            'shotDirection': self.shot_trajectories[-1] if self.shot_trajectories else "Forward Trajectory",
+            'shotDirection': self.shot_trajectories[-1] if self.shot_trajectories else "None detected",
         }
 
         feedback = []
-        if acc >= 75.0:
-            feedback.append(f"Clinical Accuracy: {acc}% on-target trajectory precision.")
+        if shots == 0:
+            feedback.append("No shot release events detected. Ensure the athlete takes a clear strike on camera.")
         else:
-            feedback.append("Finishing Advice: Maintain chest over ball upon impact to keep strikes on-target.")
+            if acc is not None and acc >= 75.0:
+                feedback.append(f"Clinical Accuracy: {acc}% on-target trajectory precision.")
+            else:
+                feedback.append("Finishing Advice: Maintain chest over ball upon impact to keep strikes on-target.")
 
-        feedback.append(f"Estimated Shot Power Index: {int(est_power_index)}/100 (Relative Biomechanical Index).")
+            if est_power_index is not None:
+                feedback.append(f"Estimated Shot Power Index: {int(est_power_index)}/100 (Relative Biomechanical Index).")
 
         if not self.goal_available:
-            feedback.append("Note: Full goalpost structure was not visible; accuracy evaluated via trajectory angle.")
+            feedback.append("Goal structure unavailable: Trajectory precision evaluated via 2D vector kinematics.")
 
         return {
             'drillType': 'shooting',
@@ -170,4 +179,6 @@ class ShootingAnalyzer:
                 'declaredPreferredFoot': summary['declaredPreferredFoot'],
             },
             'feedback': feedback,
+            'limitations': "Single-camera 2D perspective approximation. Depth and elevation velocities projected onto camera sensor plane.",
         }
+

@@ -8,6 +8,9 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// Allowed video file extensions
+const ALLOWED_VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v']);
+
 // Multer Storage Configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -20,16 +23,30 @@ const storage = multer.diskStorage({
   },
 });
 
-// Universal File Filter: Accepts any video format without restriction
+// File Filter: Validates supported video extensions & mime types
 const fileFilter = (req, file, cb) => {
-  // Accept all files with video extension or video mime type or generic data
-  cb(null, true);
+  const ext = path.extname(file.originalname).toLowerCase();
+  const isVideoMime = file.mimetype.startsWith('video/') || file.mimetype === 'application/octet-stream';
+
+  if (ALLOWED_VIDEO_EXTENSIONS.has(ext) || isVideoMime) {
+    cb(null, true);
+  } else {
+    cb(
+      new Error(
+        `Invalid video file format '${ext || file.mimetype}'. Supported formats: MP4, MOV, AVI, MKV, WEBM.`
+      ),
+      false
+    );
+  }
 };
 
 const upload = multer({
   storage,
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB max size
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100 MB max size
+  },
   fileFilter,
 });
 
 module.exports = upload;
+
