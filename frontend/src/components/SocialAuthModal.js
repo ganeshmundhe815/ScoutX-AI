@@ -152,11 +152,19 @@ export default function SocialAuthModal({
 
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        throw new Error('Server returned an unparseable response.');
+      }
 
       if (response.ok && data.status === 'requires_link_confirmation') {
         // Safe account linking authorization required
@@ -192,11 +200,20 @@ export default function SocialAuthModal({
         handleClose();
         onSuccess && onSuccess(sessionData);
       } else {
-        setErrorMsg(data.message || `Unable to authenticate with ${provider}.`);
+        setErrorMsg(data?.message || `Unable to authenticate with ${provider}.`);
       }
     } catch (err) {
       console.error(`[Social Auth Error]:`, err);
-      setErrorMsg(`Failed to connect to ${provider} authentication server.`);
+      const isNetworkError =
+        (err.name === 'TypeError' && err.message.toLowerCase().includes('fetch')) ||
+        err.message.includes('Network request failed') ||
+        err.message.includes('Failed to fetch');
+
+      if (isNetworkError) {
+        setErrorMsg('Unable to connect to ScoutX backend server. Please verify the backend is running on port 5000.');
+      } else {
+        setErrorMsg(err.message || `Unable to authenticate with ${provider}. Please try again.`);
+      }
     } finally {
       setLoading(false);
     }

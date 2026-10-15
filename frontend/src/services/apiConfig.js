@@ -38,7 +38,7 @@ const getApiBaseUrl = () => {
     const hostname = window.location.hostname;
     // Local developer machine
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:5000/api';
+      return `http://${hostname}:5000/api`;
     }
     // Local LAN Wi-Fi testing (e.g. phone hitting laptop's Expo web server)
     if (isLanHostname(hostname)) {
@@ -97,6 +97,8 @@ export default {
     REGISTER: `${BASE_API_URL}/auth/register`,
     LOGIN: `${BASE_API_URL}/auth/login`,
     PROFILE: `${BASE_API_URL}/auth/profile`,
+    GOOGLE: `${BASE_API_URL}/auth/google`,
+    APPLE: `${BASE_API_URL}/auth/apple`,
   },
   PLAYERS: {
     PROFILE: `${BASE_API_URL}/players/profile`,

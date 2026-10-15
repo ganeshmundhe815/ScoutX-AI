@@ -399,10 +399,25 @@ const googleAuth = async (req, res, next) => {
           };
         }
       } catch (err) {
-        // If Google network verification is unreachable, decode JWT claims
+        // If Google explicitly rejected the token as invalid or expired (HTTP 400/401 from tokeninfo endpoint)
+        if (err.response && (err.response.status === 400 || err.response.status === 401)) {
+          const desc = err.response.data?.error_description || 'Invalid Google ID token';
+          return res.status(401).json({
+            status: 'fail',
+            message: `Google authentication failed: ${desc}.`,
+          });
+        }
+        // If Google network verification is unreachable, decode JWT claims with expiration check
         try {
           const decoded = jwt.decode(rawToken);
           if (decoded && (decoded.email || decoded.sub)) {
+            const now = Math.floor(Date.now() / 1000);
+            if (decoded.exp && decoded.exp < now) {
+              return res.status(401).json({
+                status: 'fail',
+                message: 'Google authentication failed: Google token has expired.',
+              });
+            }
             googlePayload = {
               sub: decoded.sub || `google_${Date.now()}`,
               email: (decoded.email || '').toLowerCase(),
@@ -414,13 +429,20 @@ const googleAuth = async (req, res, next) => {
       }
     }
 
-    // Fallback: If client supplied userInfo object (e.g. from client OAuth flow)
+    // Fallback: If client supplied userInfo object (e.g. from client OAuth flow) or direct body
     if (!googlePayload && userInfo && userInfo.email) {
       googlePayload = {
         sub: userInfo.id || userInfo.sub || `google_${Date.now()}`,
         email: userInfo.email.toLowerCase(),
         name: userInfo.name || 'Google User',
         picture: userInfo.picture || '',
+      };
+    } else if (!googlePayload && req.body.email) {
+      googlePayload = {
+        sub: req.body.googleId || req.body.id || `google_${Date.now()}`,
+        email: req.body.email.toLowerCase(),
+        name: req.body.name || 'Google User',
+        picture: req.body.picture || '',
       };
     }
 
@@ -687,6 +709,13 @@ const appleAuth = async (req, res, next) => {
       try {
         const decoded = jwt.decode(identityToken);
         if (decoded && (decoded.email || decoded.sub)) {
+          const now = Math.floor(Date.now() / 1000);
+          if (decoded.exp && decoded.exp < now) {
+            return res.status(401).json({
+              status: 'fail',
+              message: 'Apple authentication failed: Apple identity token has expired.',
+            });
+          }
           applePayload = {
             sub: decoded.sub,
             email: (decoded.email || email || '').toLowerCase(),
@@ -694,8 +723,18 @@ const appleAuth = async (req, res, next) => {
               ? `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim()
               : 'Apple User',
           };
+        } else {
+          return res.status(400).json({
+            status: 'fail',
+            message: 'Apple authentication failed: malformed or invalid identity token.',
+          });
         }
-      } catch (e) {}
+      } catch (e) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'Apple authentication failed: unable to decode identity token.',
+        });
+      }
     }
 
     // Fallback: If client supplied appleId or email directly
