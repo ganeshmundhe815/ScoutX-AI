@@ -26,26 +26,42 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // 3. Global Middleware
+const configuredOrigins = [process.env.CLIENT_ORIGIN, process.env.FRONTEND_URL]
+  .filter(Boolean)
+  .flatMap((originStr) => originStr.split(','))
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 const allowedOrigins = [
-  process.env.CLIENT_ORIGIN,
+  ...configuredOrigins,
   'http://localhost:8081',
   'http://127.0.0.1:8081',
   'http://localhost:19006',
   'http://localhost:3000',
   'http://localhost:5000',
-].filter(Boolean);
+];
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser requests (e.g. mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
 
+    let hostname = '';
+    try {
+      hostname = new URL(origin).hostname;
+    } catch (_) {
+      hostname = origin;
+    }
+
     if (
       allowedOrigins.includes(origin) ||
       /^http:\/\/localhost:\d+$/.test(origin) ||
       /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
       /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
-      /^http:\/\/10\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin)
+      /^http:\/\/10\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(origin) ||
+      hostname.endsWith('.onrender.com') ||
+      hostname.endsWith('.vercel.app') ||
+      hostname.endsWith('.netlify.app')
     ) {
       return callback(null, true);
     }
@@ -61,8 +77,8 @@ app.use(cors({
 // Handle OPTIONS preflight requests for all routes
 app.options('*', cors());
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded football drill videos statically
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -119,7 +135,7 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // 7. Start the Express Server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log('====================================================');
   console.log(`⚽ ScoutX AI Football Server running on port ${PORT}`);
   console.log(`🔗 Health Check:      http://localhost:${PORT}/api/health`);

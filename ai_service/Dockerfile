@@ -29,5 +29,5 @@ ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
-# 8. Start AI microservice
-CMD ["python", "app.py"]
+# 8. Start AI microservice with production-grade WSGI server (1 worker, 4 threads to fit within memory budgets)
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-8000} --workers 1 --threads 4 --timeout 180 app:app"]

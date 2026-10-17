@@ -1,21 +1,25 @@
-# 1. Base Node.js image
-FROM node:20-alpine
+# Stage 1: Build Expo Web static bundle
+FROM node:20-alpine AS builder
 
-# 2. Set working directory
 WORKDIR /app
 
-# 3. Copy package definitions
 COPY package*.json ./
-
-# 4. Install dependencies
 RUN npm install
 
-# 5. Copy frontend source code
 COPY . .
 
-# 6. Expose Expo Web port
-ENV PORT=8081
+# Build production static web bundle (outputs to dist/)
+ARG EXPO_PUBLIC_API_URL
+ENV EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL
+ENV EXPO_NO_TELEMETRY=1
+RUN npm run build:web
+
+# Stage 2: Serve with lightweight Nginx
+FROM nginx:alpine
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+
 EXPOSE 8081
 
-# 7. Start Expo Web server binding to all interfaces
-CMD ["npx", "expo", "start", "--web", "--port", "8081"]
+CMD ["nginx", "-g", "daemon off;"]

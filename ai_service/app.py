@@ -64,7 +64,7 @@ def health_check():
             "tracker": "2D Kalman Filter Motion Smoother",
         },
         "python": sys.version.split()[0],
-        "port": 8000,
+        "port": int(os.environ.get("PORT", 8000)),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }), 200
 
@@ -200,11 +200,12 @@ def analyze_football_video_endpoint():
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
     print("================================================================")
     print("⚽ ScoutX AI – Universal Football Computer Vision Microservice")
-    print("🔗 Microservice listening on: http://localhost:8000")
-    print("🔗 Health check endpoint:    http://localhost:8000/health")
-    print("🔗 AI Analysis endpoint:     POST http://localhost:8000/api/ai/analyze")
+    print(f"🔗 Microservice listening on: http://0.0.0.0:{port}")
+    print(f"🔗 Health check endpoint:    http://0.0.0.0:{port}/health")
+    print(f"🔗 AI Analysis endpoint:     POST http://0.0.0.0:{port}/api/ai/analyze")
     print("================================================================")
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
 

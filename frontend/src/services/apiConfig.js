@@ -12,6 +12,22 @@ const LAN_HOST_IP = '192.168.1.79';
 const CLOUD_API_URL = process.env.EXPO_PUBLIC_CLOUD_API_URL || 'https://scoutx-backend.onrender.com/api';
 const USE_CLOUD = process.env.EXPO_PUBLIC_USE_CLOUD === 'true';
 
+const normalizeApiUrl = (rawUrl) => {
+  if (!rawUrl) return '';
+  let clean = rawUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(clean)) {
+    if (clean.includes('.onrender.com') || clean.includes('.railway.app') || clean.includes('.vercel.app')) {
+      clean = `https://${clean}`;
+    } else {
+      clean = `http://${clean}`;
+    }
+  }
+  if (!clean.endsWith('/api')) {
+    clean = `${clean}/api`;
+  }
+  return clean;
+};
+
 const isLanHostname = (hostname) => {
   if (!hostname) return false;
   if (hostname.endsWith('.local')) return true;
@@ -25,12 +41,12 @@ const isLanHostname = (hostname) => {
 const getApiBaseUrl = () => {
   // 1. Explicit environment variable override takes absolute precedence
   if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
   }
 
   // 2. Explicit cloud mode toggle
   if (USE_CLOUD) {
-    return CLOUD_API_URL;
+    return normalizeApiUrl(CLOUD_API_URL);
   }
 
   // 3. Web Browser environment
@@ -46,7 +62,7 @@ const getApiBaseUrl = () => {
     }
     // Online Public Domain (e.g. Vercel, Render, Netlify, custom domain)
     // Never route public web traffic to laptop localhost or private LAN IP
-    return CLOUD_API_URL;
+    return normalizeApiUrl(CLOUD_API_URL);
   }
 
   // 4. Physical Mobile devices on local Wi-Fi (Expo Go)

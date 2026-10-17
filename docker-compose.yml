@@ -85,6 +85,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - EXPO_PUBLIC_API_URL=${EXPO_PUBLIC_API_URL:-http://localhost:5000/api}
     container_name: scoutx_frontend
     restart: unless-stopped
     ports:

@@ -2,7 +2,20 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+const formatAiServiceUrl = (rawUrl) => {
+  if (!rawUrl) return 'http://localhost:8000';
+  const clean = rawUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(clean)) {
+    // If cloud domain provided without protocol (e.g. Render property: host)
+    if (clean.includes('.onrender.com') || clean.includes('.railway.app') || clean.includes('.fly.dev') || clean.includes('.koyeb.app')) {
+      return `https://${clean}`;
+    }
+    return `http://${clean}`;
+  }
+  return clean;
+};
+
+const AI_SERVICE_URL = formatAiServiceUrl(process.env.AI_SERVICE_URL);
 const AI_PROCESSING_TIMEOUT_MS = 120000; // 120s safety ceiling for long video processing
 
 /**
