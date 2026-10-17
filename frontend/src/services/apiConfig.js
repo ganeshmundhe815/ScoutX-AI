@@ -9,7 +9,7 @@ import { Platform } from 'react-native';
 const LAN_HOST_IP = '192.168.1.79';
 
 // Live Cloud URL (fallback for public deployments and remote testing)
-const CLOUD_API_URL = process.env.EXPO_PUBLIC_CLOUD_API_URL || 'https://scoutx-backend.onrender.com/api';
+const CLOUD_API_URL = process.env.EXPO_PUBLIC_CLOUD_API_URL || 'https://scoutx-backend-ub59.onrender.com/api';
 const USE_CLOUD = process.env.EXPO_PUBLIC_USE_CLOUD === 'true';
 
 const normalizeApiUrl = (rawUrl) => {

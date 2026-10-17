@@ -5,8 +5,12 @@ const fs = require('fs');
 const formatAiServiceUrl = (rawUrl) => {
   if (!rawUrl) return 'http://localhost:8000';
   const clean = rawUrl.trim().replace(/\/+$/, '');
+  // If bare service name without dots or ports (e.g. 'scoutx-ai-service' from Render Blueprint)
+  if (!clean.includes('.') && !clean.includes('localhost') && !clean.includes(':')) {
+    return `https://${clean}.onrender.com`;
+  }
   if (!/^https?:\/\//i.test(clean)) {
-    // If cloud domain provided without protocol (e.g. Render property: host)
+    // If cloud domain provided without protocol
     if (clean.includes('.onrender.com') || clean.includes('.railway.app') || clean.includes('.fly.dev') || clean.includes('.koyeb.app')) {
       return `https://${clean}`;
     }
