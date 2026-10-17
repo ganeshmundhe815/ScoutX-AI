@@ -24,7 +24,7 @@ services:
           property: host
       - key: CLIENT_ORIGIN
         fromService:
-          type: static
+          type: web
           name: scoutx-frontend
           property: host
 
@@ -48,8 +48,9 @@ services:
   # ----------------------------------------------------------------------------
   # 3. React Native / Expo Web Frontend (Static Site with Global CDN)
   # ----------------------------------------------------------------------------
-  - type: static
+  - type: web
     name: scoutx-frontend
+    runtime: static
     plan: free
     rootDir: frontend
     buildCommand: npm install && npx expo export -p web
