@@ -210,7 +210,7 @@ export default function SocialAuthModal({
         err.message.includes('Failed to fetch');
 
       if (isNetworkError) {
-        setErrorMsg('Unable to connect to ScoutX backend server. Please verify the backend is running on port 5000.');
+        setErrorMsg(`Unable to connect to ScoutX backend at ${endpoint}. Please verify the backend is active.`);
       } else {
         setErrorMsg(err.message || `Unable to authenticate with ${provider}. Please try again.`);
       }
