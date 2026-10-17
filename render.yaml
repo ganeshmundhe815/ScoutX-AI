@@ -51,7 +51,6 @@ services:
   - type: web
     name: scoutx-frontend
     runtime: static
-    plan: free
     rootDir: frontend
     buildCommand: npm install && npx expo export -p web
     staticPublishPath: dist
