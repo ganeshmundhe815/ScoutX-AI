@@ -23,10 +23,7 @@ services:
           name: scoutx-ai-service
           property: host
       - key: CLIENT_ORIGIN
-        fromService:
-          type: web
-          name: scoutx-frontend
-          property: host
+        value: https://scoutx-frontend-4p9h.onrender.com
 
   # ----------------------------------------------------------------------------
   # 2. Python AI & Computer Vision Microservice (MediaPipe & YOLOv8)
@@ -62,7 +59,4 @@ services:
       - key: EXPO_NO_TELEMETRY
         value: "1"
       - key: EXPO_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: scoutx-backend
-          property: host
+        value: https://scoutx-backend-ub59.onrender.com/api

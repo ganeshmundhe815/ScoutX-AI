@@ -12,20 +12,71 @@ const LAN_HOST_IP = '192.168.1.79';
 const CLOUD_API_URL = process.env.EXPO_PUBLIC_CLOUD_API_URL || 'https://scoutx-backend-ub59.onrender.com/api';
 const USE_CLOUD = process.env.EXPO_PUBLIC_USE_CLOUD === 'true';
 
-const normalizeApiUrl = (rawUrl) => {
-  if (!rawUrl) return '';
-  let clean = rawUrl.trim().replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(clean)) {
-    if (clean.includes('.onrender.com') || clean.includes('.railway.app') || clean.includes('.vercel.app')) {
-      clean = `https://${clean}`;
+export const normalizeApiUrl = (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return 'https://scoutx-backend-ub59.onrender.com/api';
+  }
+
+  let clean = rawUrl.trim();
+  if (!clean) {
+    return 'https://scoutx-backend-ub59.onrender.com/api';
+  }
+
+  // Strip trailing slashes
+  clean = clean.replace(/\/+$/, '');
+
+  // Extract optional protocol
+  let proto = '';
+  let hostAndPath = clean;
+  const protoMatch = clean.match(/^(https?:\/\/)/i);
+  if (protoMatch) {
+    proto = protoMatch[1].toLowerCase();
+    hostAndPath = clean.slice(proto.length);
+  }
+
+  // Split host and path
+  let [hostPart, ...pathParts] = hostAndPath.split('/');
+  let pathPart = pathParts.join('/');
+
+  const isLocalHost =
+    hostPart.startsWith('localhost') ||
+    hostPart.startsWith('127.0.0.1') ||
+    /^192\.168\.\d{1,3}\.\d{1,3}/.test(hostPart) ||
+    /^10\.\d{1,3}\.\d{1,3}/.test(hostPart) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}/.test(hostPart);
+
+  // If host has no dots and no port, and is not local, it is a bare Render service name (e.g. 'scoutx-backend-ub59')
+  if (!hostPart.includes('.') && !hostPart.includes(':') && !isLocalHost) {
+    hostPart = `${hostPart}.onrender.com`;
+  }
+
+  // Determine protocol:
+  // Local development supports http://.
+  // ALL public / cloud domains must use https:// to strictly prevent mixed-content blocks!
+  if (isLocalHost) {
+    proto = proto || 'http://';
+  } else {
+    proto = 'https://';
+  }
+
+  // Reconstruct URL with /api path
+  let normalized = `${proto}${hostPart}`;
+  if (pathPart) {
+    pathPart = pathPart.replace(/^\/+|\/+$/g, '');
+    if (pathPart === 'api' || pathPart.endsWith('/api')) {
+      normalized = `${normalized}/${pathPart}`;
     } else {
-      clean = `http://${clean}`;
+      normalized = `${normalized}/${pathPart}/api`;
     }
+  } else {
+    normalized = `${normalized}/api`;
   }
-  if (!clean.endsWith('/api')) {
-    clean = `${clean}/api`;
-  }
-  return clean;
+
+  // Final normalization: avoid duplicate slashes in path and duplicate /api/api
+  normalized = normalized.replace(/([^:])\/\/+/g, '$1/');
+  normalized = normalized.replace(/\/api\/api$/i, '/api');
+
+  return normalized;
 };
 
 const isLanHostname = (hostname) => {
