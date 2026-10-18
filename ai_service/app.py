@@ -62,7 +62,7 @@ def health_check():
 
     return jsonify({
         "status": "ok",
-        "version": "2.5.0-sample-verified",
+        "version": "2.5.1-detector-ready",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
