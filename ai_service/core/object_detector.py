@@ -11,6 +11,12 @@ if not os.path.exists(YOLO_MODEL_PATH) and os.path.exists(DEFAULT_MODEL):
 try:
     import torch
     TORCH_AVAILABLE = True
+    if hasattr(torch, 'set_num_threads'):
+        try:
+            torch.set_num_threads(1)
+            torch.set_grad_enabled(False)
+        except Exception:
+            pass
 except Exception:
     TORCH_AVAILABLE = False
 
@@ -153,6 +159,7 @@ class FootballObjectDetector:
                             'area': bw * bh,
                             'confidence': round(conf, 3),
                         })
+                del results
             except Exception:
                 pass
 

@@ -22,7 +22,7 @@ from utils.scoring import calculate_overall_football_score
 
 TARGET_WIDTH = 640
 TARGET_HEIGHT = 360
-MAX_ANALYSIS_FRAMES = int(os.environ.get("MAX_ANALYSIS_FRAMES", "40"))  # Rapid execution under 10-12s on cloud CPU
+MAX_ANALYSIS_FRAMES = int(os.environ.get("MAX_ANALYSIS_FRAMES", "20"))  # Rapid execution under 4-5s on cloud CPU (low memory)
 
 # Global Singletons
 _GLOBAL_POSE_DETECTOR = None

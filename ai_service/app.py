@@ -62,7 +62,7 @@ def health_check():
 
     return jsonify({
         "status": "ok",
-        "version": "2.3.0-bbox-resilient",
+        "version": "2.4.0-low-mem-optimized",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
@@ -110,39 +110,43 @@ def analyze_football_video_endpoint():
     try:
         cleanup_old_uploads(app.config["UPLOAD_FOLDER"])
 
-        drill_type = request.form.get("drillType") or request.args.get("drillType") or "dribbling"
-        preferred_foot = request.form.get("preferredFoot") or "Right"
+        drill_type = "dribbling"
+        preferred_foot = "Right"
         video_path = None
 
-        if "video" in request.files:
-            file = request.files["video"]
-            if file.filename != "":
-                raw_name = secure_filename(file.filename) or "video.mp4"
-                _, ext = os.path.splitext(raw_name)
-                ext = ext.lower()
-
-                if ext and ext not in ALLOWED_VIDEO_EXTS:
-                    return jsonify({
-                        "success": False,
-                        "status": "invalid_format",
-                        "message": f"Unsupported video format '{ext}'. Allowed formats: {', '.join(sorted(ALLOWED_VIDEO_EXTS))}.",
-                    }), 400
-
-                if not ext:
-                    ext = ".mp4"
-                    raw_name += ext
-
-                filename = f"fb_{int(time.time())}_{raw_name}"
-                saved_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-                file.save(saved_path)
-                video_path = saved_path
-        elif request.is_json:
-            data = request.get_json() or {}
+        if request.is_json:
+            data = request.get_json(silent=True) or {}
             video_path = data.get("videoPath")
-            drill_type = data.get("drillType", drill_type)
-            preferred_foot = data.get("preferredFoot", preferred_foot)
+            drill_type = data.get("drillType") or data.get("drill_type") or drill_type
+            preferred_foot = data.get("preferredFoot") or data.get("preferred_foot") or preferred_foot
         else:
-            video_path = request.form.get("videoPath")
+            drill_type = request.form.get("drillType") or request.form.get("drill_type") or request.args.get("drillType") or "dribbling"
+            preferred_foot = request.form.get("preferredFoot") or request.form.get("preferred_foot") or "Right"
+
+            if "video" in request.files:
+                file = request.files["video"]
+                if file.filename != "":
+                    raw_name = secure_filename(file.filename) or "video.mp4"
+                    _, ext = os.path.splitext(raw_name)
+                    ext = ext.lower()
+
+                    if ext and ext not in ALLOWED_VIDEO_EXTS:
+                        return jsonify({
+                            "success": False,
+                            "status": "invalid_format",
+                            "message": f"Unsupported video format '{ext}'. Allowed formats: {', '.join(sorted(ALLOWED_VIDEO_EXTS))}.",
+                        }), 400
+
+                    if not ext:
+                        ext = ".mp4"
+                        raw_name += ext
+
+                    filename = f"fb_{int(time.time())}_{raw_name}"
+                    saved_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                    file.save(saved_path)
+                    video_path = saved_path
+            else:
+                video_path = request.form.get("videoPath")
 
         if not video_path or not os.path.exists(video_path):
             sample_path = os.path.join(os.path.dirname(__file__), "sample_athlete.mp4")
@@ -155,7 +159,12 @@ def analyze_football_video_endpoint():
 
         print(f"[UNIVERSAL FOOTBALL AI] Analyzing {drill_type.upper()} on video: {video_path}")
 
-        out_annotated = os.path.join(app.config["UPLOAD_FOLDER"], f"annotated_{int(time.time())}_{drill_type}.mp4")
+        # Only generate annotated video if explicitly requested to conserve memory on cloud PaaS
+        enable_video_out = os.environ.get("GENERATE_ANNOTATED_VIDEO", "0") == "1"
+        out_annotated = None
+        if enable_video_out:
+            out_annotated = os.path.join(app.config["UPLOAD_FOLDER"], f"annotated_{int(time.time())}_{drill_type}.mp4")
+
         report = run_football_assessment(
             drill_type=drill_type,
             input_source=video_path,
@@ -247,6 +256,16 @@ def analyze_football_video_endpoint():
             elif isinstance(val, (np.bool_,)):
                 return bool(val)
             return val
+
+        # Clean up temporary uploaded file if created during this request
+        if video_path and video_path != os.path.join(os.path.dirname(__file__), "sample_athlete.mp4") and os.path.exists(video_path):
+            try:
+                os.remove(video_path)
+            except Exception:
+                pass
+
+        import gc
+        gc.collect()
 
         return jsonify(_clean(response_payload)), 200
 
