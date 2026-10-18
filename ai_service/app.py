@@ -14,7 +14,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from football.football_assessment import run_football_assessment, warmup_ai_models
+from football.football_assessment import run_football_assessment, warmup_ai_models, get_pose_detector
 
 app = Flask(__name__)
 CORS(app)
@@ -54,13 +54,20 @@ def cleanup_old_uploads(folder, max_age_seconds=7200):
 @app.route("/health", methods=["GET"])
 def health_check():
     """Diagnostic health check for Football AI Microservice."""
+    current_pose_engine = "unknown"
+    try:
+        current_pose_engine = getattr(get_pose_detector(), "detector_type", "unknown")
+    except Exception:
+        pass
+
     return jsonify({
         "status": "ok",
-        "version": "2.2.0-headless-resilient",
+        "version": "2.3.0-bbox-resilient",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
             "pose": "MediaPipe 33-Landmark PoseLandmarker (Lite)",
+            "poseEngine": current_pose_engine,
             "yolo": os.environ.get("YOLO_MODEL_PATH", "yolov8n.pt"),
             "yoloResolution": "320x320 optimized for CPU",
             "tracker": "2D Kalman Filter Motion Smoother",

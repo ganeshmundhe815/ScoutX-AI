@@ -25,6 +25,31 @@ MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pos
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "pose_landmarker_lite.task")
 
 
+def check_native_gles_available():
+    """Detects whether native OpenGL ES (libGLESv2) is available before calling MediaPipe."""
+    if sys.platform != "linux":
+        return True
+    try:
+        import ctypes
+        from ctypes.util import find_library
+        gles = find_library('GLESv2')
+        if gles:
+            try:
+                ctypes.CDLL(gles)
+                return True
+            except Exception:
+                pass
+        for name in ['libGLESv2.so.2', 'libGLESv2.so']:
+            try:
+                ctypes.CDLL(name)
+                return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
 class StandardizedPoseResult:
     """Wrapper that normalizes pose landmark results across Solutions and Tasks APIs."""
     def __init__(self, landmarks):
@@ -42,6 +67,15 @@ class PoseDetector:
         self.min_visibility_thresh = min_visibility_thresh
         self.detector_type = None
         self.detector = None
+        self.last_player_bbox = None
+
+        # Check native OpenGL ES availability first to protect Linux headless cloud containers
+        self.gles_available = check_native_gles_available()
+        if not self.gles_available:
+            print("[POSE ENGINE] libGLESv2 not detected in OS environment. MediaPipe bypassed to prevent C++ crash.")
+            print("[POSE ENGINE] Activating Resilient YOLO-Guided Skeletal Landmark Engine.")
+            self.detector_type = "bbox_fallback"
+            return
 
         # 1. Primary: MediaPipe Solutions Pose (Proven CPU native engine)
         try:
@@ -54,7 +88,7 @@ class PoseDetector:
                     min_tracking_confidence=min_pose_presence_confidence,
                 )
                 self.detector_type = "solutions"
-                print("⚡ [POSE ENGINE] MediaPipe Solutions Pose initialized (Pure CPU, headless compliant).")
+                print("[POSE ENGINE] MediaPipe Solutions Pose initialized (Pure CPU, headless compliant).")
         except Exception as e:
             print(f"[POSE ENGINE WARN] Solutions Pose init notice: {e}")
 
@@ -72,9 +106,13 @@ class PoseDetector:
                 )
                 self.detector = vision.PoseLandmarker.create_from_options(options)
                 self.detector_type = "tasks"
-                print("⚡ [POSE ENGINE] MediaPipe Tasks PoseLandmarker initialized.")
+                print("[POSE ENGINE] MediaPipe Tasks PoseLandmarker initialized.")
             except Exception as e:
                 print(f"[POSE ENGINE WARN] Tasks PoseLandmarker init notice: {e}")
+
+        if self.detector is None:
+            self.detector_type = "bbox_fallback"
+            print("[POSE ENGINE] Defaulting to Resilient YOLO-Guided Landmark Engine.")
 
     def _ensure_model_exists(self):
         """Downloads the lightweight MediaPipe model file if not already present."""
@@ -127,6 +165,11 @@ class PoseDetector:
         """
         annotated_frame = frame.copy()
         landmarks = []
+
+        if player_bbox is not None:
+            self.last_player_bbox = player_bbox
+        elif self.last_player_bbox is not None:
+            player_bbox = self.last_player_bbox
 
         if self.detector is not None:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
