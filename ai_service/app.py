@@ -100,6 +100,69 @@ def handle_global_exception(e):
     }), code
 
 
+@app.route("/api/ai/debug-step/<int:step>", methods=["GET", "POST"])
+def debug_step(step):
+    logs = []
+    try:
+        sample_path = os.path.join(os.path.dirname(__file__), "sample_athlete.mp4")
+        logs.append(f"Sample path: {sample_path} (exists={os.path.exists(sample_path)})")
+        if step == 1:
+            return jsonify({"status": "ok", "step": 1, "logs": logs})
+
+        import cv2
+        cap = cv2.VideoCapture(sample_path)
+        opened = cap.isOpened()
+        logs.append(f"VideoCapture opened={opened}")
+        if step == 2:
+            cap.release()
+            return jsonify({"status": "ok", "step": 2, "logs": logs})
+
+        ret, frame = cap.read()
+        cap.release()
+        logs.append(f"cap.read() success={ret}, frame_shape={frame.shape if ret else None}")
+        if step == 3:
+            return jsonify({"status": "ok", "step": 3, "logs": logs})
+
+        # Step 4: Pose detector
+        pd = get_pose_detector()
+        logs.append(f"Pose detector type: {pd.detector_type}")
+        res, ann = pd.find_pose(frame)
+        lms = pd.get_landmarks(frame, res)
+        logs.append(f"Landmarks count: {len(lms)}")
+        if step == 4:
+            return jsonify({"status": "ok", "step": 4, "logs": logs})
+
+        # Step 5: YOLO object detector
+        od = get_object_detector()
+        logs.append(f"YOLO detector model: {od.model is not None}")
+        objs = od.detect_objects(frame, frame_idx=1)
+        logs.append(f"YOLO objs keys: {list(objs.keys())}")
+        if step == 5:
+            return jsonify({"status": "ok", "step": 5, "logs": logs})
+
+        # Step 6: Full assessment
+        report = run_football_assessment(drill_type="dribbling", input_source=sample_path, output_video=None)
+        logs.append(f"Assessment success={report.get('success') if report else False}, score={report.get('score') if report else None}")
+        return jsonify({
+            "status": "ok",
+            "step": 6,
+            "logs": logs,
+            "report_summary": {
+                "score": report.get("score"),
+                "touches": report.get("rawMetrics", {}).get("ballTouches")
+            }
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "status": "error",
+            "step": step,
+            "logs": logs,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
 @app.route("/api/ai/analyze", methods=["POST"])
 def analyze_football_video_endpoint():
     """
