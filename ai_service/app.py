@@ -14,7 +14,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from football.football_assessment import run_football_assessment, warmup_ai_models, get_pose_detector
+from football.football_assessment import run_football_assessment, warmup_ai_models, get_pose_detector, get_object_detector
 
 app = Flask(__name__)
 CORS(app)
