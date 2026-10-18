@@ -27,6 +27,7 @@ env/
 ai_service/uploads/
 ai_service/output_*.mp4
 ai_service/*.mp4
+!ai_service/sample_athlete.mp4
 backend/uploads/
 *.mp4
 *.mov

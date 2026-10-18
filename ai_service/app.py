@@ -62,7 +62,7 @@ def health_check():
 
     return jsonify({
         "status": "ok",
-        "version": "2.4.0-low-mem-optimized",
+        "version": "2.5.0-sample-verified",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
@@ -119,7 +119,13 @@ def debug_step(step):
 
         ret, frame = cap.read()
         cap.release()
-        logs.append(f"cap.read() success={ret}, frame_shape={frame.shape if ret else None}")
+        if not ret or frame is None:
+            import numpy as np
+            frame = np.zeros((360, 640, 3), dtype=np.uint8)
+            logs.append("Using synthetic frame (640x360)")
+        else:
+            logs.append(f"cap.read() success={ret}, frame_shape={frame.shape}")
+
         if step == 3:
             return jsonify({"status": "ok", "step": 3, "logs": logs})
 
