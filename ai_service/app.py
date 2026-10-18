@@ -62,13 +62,14 @@ def health_check():
 
     return jsonify({
         "status": "ok",
-        "version": "2.5.1-detector-ready",
+        "version": "2.6.0-opencv-onnx-engine",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
             "pose": "MediaPipe 33-Landmark PoseLandmarker (Lite)",
             "poseEngine": current_pose_engine,
-            "yolo": os.environ.get("YOLO_MODEL_PATH", "yolov8n.pt"),
+            "objectEngine": getattr(get_object_detector(), "engine_type", "unknown"),
+            "yolo": "yolov8n.onnx (OpenCV DNN C++)",
             "yoloResolution": "320x320 optimized for CPU",
             "tracker": "2D Kalman Filter Motion Smoother",
         },

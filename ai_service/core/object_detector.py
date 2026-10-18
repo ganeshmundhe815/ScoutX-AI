@@ -82,28 +82,42 @@ class FootballKalmanTracker:
 class FootballObjectDetector:
     """
     Modular Football Object Detection & Tracking Engine:
-    - Detects Football (COCO Class 32: sports ball / custom model) with fallback HSV circularity filter
-    - Detects Athlete (COCO Class 0: person) with target athlete isolation
-    - Validates Goal Post presence (returns 'unavailable' if physical goal structure is not detected)
+    - Primary Engine: OpenCV DNN ONNX (Pure C++, 70MB RAM, zero PyTorch overhead, headless cloud optimized)
+    - Fallback Engine: Ultralytics PyTorch YOLO (if available)
+    - Fallback Filter: Pitch HSV Subtraction & Circularity Moments
+    - Validates Goal Post presence
     - Returns structured detection dictionaries with confidence scores and frame IDs
     """
     def __init__(self, model_path=None, conf_threshold=0.20):
         self.conf_threshold = conf_threshold
-        self.model_path = model_path or YOLO_MODEL_PATH
-        self.model = None
         self.tracker = FootballKalmanTracker()
         self.last_player_bbox = None
         self.last_goal_data = None
+        self.engine_type = "cv_ensemble"
+        self.onnx_net = None
+        self.model = None
 
-        if YOLO_AVAILABLE:
+        # 1. Primary Engine: Ultra-Lightweight OpenCV DNN (Pure C++, 70MB RAM, zero PyTorch overhead)
+        onnx_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "yolov8n.onnx")
+        if os.path.exists(onnx_path):
+            try:
+                self.onnx_net = cv2.dnn.readNetFromONNX(onnx_path)
+                self.engine_type = "opencv_onnx"
+                print(f"[YOLO ENGINE] Successfully loaded OpenCV DNN ONNX model: {onnx_path} (Ultra-low RAM).")
+            except Exception as e:
+                print(f"[YOLO ENGINE WARN] Could not load ONNX model ({e}). Trying PyTorch...")
+                self.onnx_net = None
+
+        # 2. Secondary Engine: Ultralytics PyTorch YOLO (if ONNX not available)
+        if self.onnx_net is None and YOLO_AVAILABLE:
+            self.model_path = model_path or YOLO_MODEL_PATH
             try:
                 self.model = YOLO(self.model_path)
-                print(f"[YOLO ENGINE] Successfully loaded model: {self.model_path}")
+                self.engine_type = "pytorch_yolo"
+                print(f"[YOLO ENGINE] Successfully loaded PyTorch model: {self.model_path}")
             except Exception as e:
-                print(f"[YOLO ENGINE WARN] Could not load {self.model_path} ({e}). Using CV ensemble.")
+                print(f"[YOLO ENGINE WARN] Could not load PyTorch model ({e}). Using CV ensemble.")
                 self.model = None
-        else:
-            print("[YOLO ENGINE WARN] Ultralytics YOLO not available in environment.")
 
     def detect_objects(self, frame, frame_idx=0):
         """
@@ -123,8 +137,71 @@ class FootballObjectDetector:
         raw_ball = None
         players = []
 
-        # 1. Deep Learning Object Detection (YOLO with imgsz=320 for 6x CPU speedup)
-        if self.model is not None:
+        # 1. Ultra-Lightweight OpenCV DNN ONNX Object Detection (70MB RAM, pure C++)
+        if self.onnx_net is not None:
+            try:
+                blob = cv2.dnn.blobFromImage(frame, 1.0 / 255.0, (320, 320), swapRB=True)
+                self.onnx_net.setInput(blob)
+                out = self.onnx_net.forward()
+                preds = out[0].T
+                x_scale = float(w) / 320.0
+                y_scale = float(h) / 320.0
+
+                boxes = []
+                confidences = []
+                class_ids = []
+
+                for pred in preds:
+                    class_scores = pred[4:]
+                    class_id = int(np.argmax(class_scores))
+                    conf = float(class_scores[class_id])
+                    if conf >= self.conf_threshold:
+                        cx = pred[0] * x_scale
+                        cy = pred[1] * y_scale
+                        bw = pred[2] * x_scale
+                        bh = pred[3] * y_scale
+                        x1 = int(max(0, cx - bw / 2.0))
+                        y1 = int(max(0, cy - bh / 2.0))
+                        boxes.append([x1, y1, int(bw), int(bh)])
+                        confidences.append(conf)
+                        class_ids.append(class_id)
+
+                indices = cv2.dnn.NMSBoxes(boxes, confidences, self.conf_threshold, 0.45)
+                if len(indices) > 0:
+                    for i in indices:
+                        idx = int(i[0]) if isinstance(i, (list, tuple, np.ndarray)) else int(i)
+                        cid = class_ids[idx]
+                        c = confidences[idx]
+                        x1, y1, bw, bh = boxes[idx]
+                        x2, y2 = min(w, x1 + bw), min(h, y1 + bh)
+                        cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+
+                        # Class 32: sports ball
+                        if cid == 32:
+                            if raw_ball is None or c > raw_ball['confidence']:
+                                raw_ball = {
+                                    'detected': True,
+                                    'x': x1,
+                                    'y': y1,
+                                    'width': bw,
+                                    'height': bh,
+                                    'center': (cx, cy),
+                                    'radius': max(5, int(bw / 2)),
+                                    'confidence': round(c, 3),
+                                }
+                        # Class 0: person
+                        elif cid == 0:
+                            players.append({
+                                'bbox': [x1, y1, x2, y2],
+                                'center': (cx, cy),
+                                'area': bw * bh,
+                                'confidence': round(c, 3),
+                            })
+            except Exception as e:
+                print(f"[ONNX INFERENCE WARN] {e}")
+
+        # 2. PyTorch YOLO Detection (Fallback if ONNX is not available)
+        elif self.model is not None:
             try:
                 if TORCH_AVAILABLE:
                     with torch.inference_mode():
@@ -138,7 +215,6 @@ class FootballObjectDetector:
                     cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
                     bw, bh = x2 - x1, y2 - y1
 
-                    # Class 32: sports ball (or class 0 in dedicated football model)
                     if cls_id == 32 or (len(self.model.names) == 1 and cls_id == 0):
                         if raw_ball is None or conf > raw_ball['confidence']:
                             raw_ball = {
@@ -151,7 +227,6 @@ class FootballObjectDetector:
                                 'radius': max(5, int(bw / 2)),
                                 'confidence': round(conf, 3),
                             }
-                    # Class 0: person
                     elif cls_id == 0:
                         players.append({
                             'bbox': [x1, y1, x2, y2],
