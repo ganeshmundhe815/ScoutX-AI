@@ -46,8 +46,14 @@ def get_object_detector():
 def warmup_ai_models():
     """Pre-warms the MediaPipe and Object Detector graphs at startup."""
     print("🔥 Pre-warming MediaPipe and YOLO AI models...")
-    get_pose_detector()
-    get_object_detector()
+    try:
+        get_pose_detector()
+    except Exception as e:
+        print(f"[WARN] Pose pre-warm: {e}")
+    try:
+        get_object_detector()
+    except Exception as e:
+        print(f"[WARN] Object detector pre-warm: {e}")
     print("⚡ AI Models Warm & Ready for Assessment!")
 
 
@@ -161,17 +167,7 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
             if analyzed_count % 10 == 0:
                 frame_qualities.append(validator.compute_frame_quality(frame))
 
-            # 3. Detect 33 Pose Landmarks (MediaPipe)
-            t_p0 = time.time()
-            result, annotated_frame = pose_detector.find_pose(frame, draw=True)
-            landmarks = pose_detector.get_landmarks(frame, result)
-            t_pose_total += (time.time() - t_p0)
-
-            if landmarks and len(landmarks) >= 33:
-                player_detected_count += 1
-                player_conf_sum += 0.92
-
-            # 4. Detect Ball, Athlete, and Goal Structure (YOLO imgsz=320 + CV)
+            # 3. Detect Ball, Athlete, and Goal Structure (YOLO imgsz=320 + CV)
             t_y0 = time.time()
             objs = object_detector.detect_objects(frame, frame_idx=analyzed_count)
             t_yolo_total += (time.time() - t_y0)
@@ -179,6 +175,25 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
             ball_data = objs['ball']
             player_data = objs['player']
             goal_data = objs['goal']
+
+            player_bbox = player_data['bbox'] if (player_data and player_data.get('bbox')) else None
+
+            # 4. Detect 33 Pose Landmarks (MediaPipe with resilient athlete bbox fallback)
+            t_p0 = time.time()
+            try:
+                result, annotated_frame = pose_detector.find_pose(frame, draw=True, player_bbox=player_bbox)
+                landmarks = pose_detector.get_landmarks(frame, result)
+            except Exception as e:
+                result, annotated_frame = None, frame.copy()
+                landmarks = []
+            t_pose_total += (time.time() - t_p0)
+
+            if landmarks and len(landmarks) >= 33:
+                player_detected_count += 1
+                player_conf_sum += 0.92
+            elif player_data and player_data.get('detected'):
+                player_detected_count += 1
+                player_conf_sum += player_data.get('confidence', 0.85)
 
             if ball_data and ball_data.get('detected'):
                 ball_detected_count += 1

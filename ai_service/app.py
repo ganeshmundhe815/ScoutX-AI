@@ -56,7 +56,7 @@ def health_check():
     """Diagnostic health check for Football AI Microservice."""
     return jsonify({
         "status": "ok",
-        "version": "2.1.0-latency-optimized",
+        "version": "2.2.0-headless-resilient",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
