@@ -56,6 +56,7 @@ def health_check():
     """Diagnostic health check for Football AI Microservice."""
     return jsonify({
         "status": "ok",
+        "version": "2.1.0-latency-optimized",
         "service": "ScoutX AI Universal Football Computer Vision Engine ⚽🧠",
         "supportedDrills": ["dribbling", "shooting", "ball_control"],
         "models": {
@@ -68,6 +69,28 @@ def health_check():
         "port": int(os.environ.get("PORT", 8000)),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }), 200
+
+
+@app.errorhandler(Exception)
+def handle_global_exception(e):
+    """Catch-all error handler ensuring Flask always returns structured JSON instead of HTML error pages."""
+    from werkzeug.exceptions import HTTPException
+    code = 500
+    if isinstance(e, HTTPException):
+        code = e.code
+
+    err_str = str(e)
+    print(f"[FLASK GLOBAL ERROR {code}] {err_str}", flush=True)
+    traceback.print_exc(file=sys.stdout)
+    sys.stdout.flush()
+
+    return jsonify({
+        "success": False,
+        "status": "error",
+        "message": err_str,
+        "errorCode": getattr(e, "name", "InternalServerError"),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }), code
 
 
 @app.route("/api/ai/analyze", methods=["POST"])
