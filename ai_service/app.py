@@ -224,7 +224,24 @@ def analyze_football_video_endpoint():
         elif drill_type == "ball_control":
             response_payload["ballControl"] = report.get("ballControl", {})
 
-        return jsonify(response_payload), 200
+        import numpy as np
+
+        def _clean(val):
+            if isinstance(val, dict):
+                return {k: _clean(v) for k, v in val.items()}
+            elif isinstance(val, (list, tuple)):
+                return [_clean(v) for v in val]
+            elif isinstance(val, (np.integer,)):
+                return int(val)
+            elif isinstance(val, (np.floating,)):
+                return float(val)
+            elif isinstance(val, (np.ndarray,)):
+                return val.tolist()
+            elif isinstance(val, (np.bool_,)):
+                return bool(val)
+            return val
+
+        return jsonify(_clean(response_payload)), 200
 
     except Exception as e:
         err_msg = str(e)

@@ -387,10 +387,30 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
             "confidence": final_report["confidence"],
         }
 
+    def _sanitize(obj):
+        if isinstance(obj, dict):
+            return {k: _sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [_sanitize(v) for v in obj]
+        elif isinstance(obj, (np.integer,)):
+            return int(obj)
+        elif isinstance(obj, (np.floating,)):
+            return float(obj)
+        elif isinstance(obj, (np.ndarray,)):
+            return obj.tolist()
+        elif isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        return obj
+
+    master_result = _sanitize(master_result)
+
     print("\n================================================================")
     print("🏆 FINAL FOOTBALL TALENT ASSESSMENT SCORECARD")
     print("================================================================")
-    print(json.dumps(master_result, indent=2))
+    try:
+        print(json.dumps(master_result, indent=2, default=str))
+    except Exception as e:
+        print(f"[WARN] Scorecard JSON logging notice: {e}")
     print("================================================================")
 
     return master_result
