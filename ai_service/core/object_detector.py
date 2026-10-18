@@ -3,8 +3,16 @@ import cv2
 import numpy as np
 
 # Configurable YOLO Model Path via Environment Variable
-DEFAULT_MODEL = "yolov8n.pt"
+DEFAULT_MODEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "yolov8n.pt")
 YOLO_MODEL_PATH = os.environ.get("YOLO_MODEL_PATH", DEFAULT_MODEL)
+if not os.path.exists(YOLO_MODEL_PATH) and os.path.exists(DEFAULT_MODEL):
+    YOLO_MODEL_PATH = DEFAULT_MODEL
+
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except Exception:
+    TORCH_AVAILABLE = False
 
 try:
     from ultralytics import YOLO
@@ -112,7 +120,11 @@ class FootballObjectDetector:
         # 1. Deep Learning Object Detection (YOLO with imgsz=320 for 6x CPU speedup)
         if self.model is not None:
             try:
-                results = self.model(frame, imgsz=320, verbose=False, conf=self.conf_threshold)[0]
+                if TORCH_AVAILABLE:
+                    with torch.inference_mode():
+                        results = self.model(frame, imgsz=320, verbose=False, conf=self.conf_threshold)[0]
+                else:
+                    results = self.model(frame, imgsz=320, verbose=False, conf=self.conf_threshold)[0]
                 for box in results.boxes:
                     cls_id = int(box.cls[0])
                     conf = float(box.conf[0])

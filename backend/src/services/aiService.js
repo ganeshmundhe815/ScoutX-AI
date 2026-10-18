@@ -112,10 +112,21 @@ const sendVideoToAI = async (videoFilePath, drillType = 'dribbling', preferredFo
       userMessage = `AI Computer Vision processing timed out (${error.message}). The video may be exceptionally long or the host CPU is under heavy load.`;
       console.error(`⏳ [AI Bridge] Request timed out after ${(durationMs / 1000).toFixed(2)}s`);
     } else if (error.response) {
-      failureCategory = 'processing_error';
-      const serverMsg = error.response.data?.message || error.response.statusText;
-      userMessage = `AI Computer Vision processing failed (${error.response.status}): ${serverMsg}`;
-      console.error(`⚠️ [AI Bridge] Python microservice returned error ${error.response.status}:`, error.response.data);
+      const status = error.response.status;
+      if (status === 502 || status === 504) {
+        failureCategory = 'timeout';
+        userMessage = `AI Computer Vision service is temporarily busy or waking up (${status}: ${error.response.statusText || 'Gateway Timeout'}). Please retry in a few moments.`;
+      } else {
+        failureCategory = 'processing_error';
+        let serverMsg = error.response.data?.message;
+        if (!serverMsg && typeof error.response.data === 'string') {
+          const match = error.response.data.match(/<title>([^<]+)<\/title>/i);
+          serverMsg = match ? match[1].trim() : error.response.statusText;
+        }
+        serverMsg = serverMsg || error.response.statusText || 'Internal Server Error';
+        userMessage = `AI Computer Vision processing failed (${status}): ${serverMsg}`;
+      }
+      console.error(`⚠️ [AI Bridge] Python microservice returned error ${status}:`, error.response.data);
     } else {
       userMessage = `AI Computer Vision Service error: ${error.message}.`;
       console.error(`❌ [AI Bridge] Unexpected error: ${error.message}`);

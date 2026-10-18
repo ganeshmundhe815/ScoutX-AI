@@ -22,7 +22,7 @@ from utils.scoring import calculate_overall_football_score
 
 TARGET_WIDTH = 640
 TARGET_HEIGHT = 360
-MAX_ANALYSIS_FRAMES = 75  # Target 60-75 keyframes for rapid CPU execution under 8 seconds
+MAX_ANALYSIS_FRAMES = int(os.environ.get("MAX_ANALYSIS_FRAMES", "40"))  # Rapid execution under 10-12s on cloud CPU
 
 # Global Singletons
 _GLOBAL_POSE_DETECTOR = None
@@ -91,12 +91,18 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
 
     effective_fps = max(1.0, float(fps) / float(frame_stride))
 
-    if not output_video:
-        output_video = f"output_football_{drill_type}.mp4"
-
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out_fps = max(5, int(fps / frame_stride))
-    out = cv2.VideoWriter(output_video, fourcc, out_fps, (TARGET_WIDTH, TARGET_HEIGHT))
+    out = None
+    if output_video:
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out_fps = max(5, int(fps / frame_stride))
+            out = cv2.VideoWriter(output_video, fourcc, out_fps, (TARGET_WIDTH, TARGET_HEIGHT))
+            if not out.isOpened():
+                fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                out = cv2.VideoWriter(output_video, fourcc, out_fps, (TARGET_WIDTH, TARGET_HEIGHT))
+        except Exception as e:
+            print(f"[WARN] VideoWriter initialization skipped ({e}). Continuing assessment.")
+            out = None
 
     # 2. Initialize Detectors & Analyzers (Pass effective_fps so duration & debouncing match real drill time)
     pose_detector = get_pose_detector()
@@ -252,8 +258,12 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
             cv2.putText(annotated_frame, ">> MediaPipe 33-Joints + YOLO Ball Tracking",
                         (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (16, 185, 129), 1)
 
-            out.write(annotated_frame)
-            t_write_total += (time.time() - t_w0)
+            if out is not None and out.isOpened():
+                try:
+                    out.write(annotated_frame)
+                    t_write_total += (time.time() - t_w0)
+                except Exception:
+                    pass
 
             if show_display:
                 cv2.imshow(f"ScoutX Football - {drill_type.upper()}", annotated_frame)
@@ -264,10 +274,22 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
                 break
 
     finally:
-        cap.release()
-        out.release()
+        try:
+            cap.release()
+        except Exception:
+            pass
+        if out is not None:
+            try:
+                out.release()
+            except Exception:
+                pass
         if show_display:
-            cv2.destroyAllWindows()
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
+        import gc
+        gc.collect()
 
     elapsed_time = round(time.time() - start_time, 2)
 
@@ -338,7 +360,7 @@ def run_football_assessment(drill_type="dribbling", input_source=0, output_video
             "frameStride": frame_stride,
             "effectiveFps": round(effective_fps, 1),
         },
-        "annotatedVideoPath": os.path.abspath(output_video),
+        "annotatedVideoPath": os.path.abspath(output_video) if (output_video and os.path.exists(output_video)) else "",
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
